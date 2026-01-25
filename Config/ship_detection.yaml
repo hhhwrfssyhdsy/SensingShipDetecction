@@ -1,0 +1,6 @@
+names:
+- ship
+nc: 1
+path: /root/ShipDetection_improved
+train: images/train
+val: images/val
