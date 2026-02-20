@@ -87,6 +87,52 @@ class Config:
         "ship": 0,
     }
 
+    # ==================== 边缘计算优化配置 ====================
+
+    # 边缘设备优化开关
+    EDGE_OPTIMIZATION = {
+        "enabled": True,  # 启用边缘优化
+        "use_lightweight_blocks": True,  # 使用轻量化模块
+        "use_pruning": True,  # 启用模型剪枝
+        "use_quantization": True,  # 启用INT8量化
+        "pruning_ratio": 0.2,  # 剪枝比例 (0-1)
+        "quantization_bits": 8,  # 量化位数
+    }
+
+    # 边缘设备目标平台
+    EDGE_TARGET_PLATFORMS = ["cpu", "gpu", "jetson", "raspberry_pi", "openvino"]
+
+    # 边缘优化训练配置
+    EDGE_TRAINING_CONFIG = {
+        "epochs": 100,  # 边缘模型训练轮数
+        "batch_size": 4,  # 较小的批次大小
+        "learning_rate": 0.001,  # 较低的学习率
+        "weight_decay": 0.0005,
+        "label_smoothing": 0.1,
+        "dropout": 0.1,  # 添加dropout防止过拟合
+    }
+
+    # 模型压缩目标
+    EDGE_COMPRESSION_TARGETS = {
+        "max_model_size_mb": 50,  # 最大模型大小 (MB)
+        "min_fps": 15,  # 最低FPS要求
+        "target_latency_ms": 66,  # 目标延迟 (ms, 约15FPS)
+    }
+
+    # ONNX导出配置
+    ONNX_EXPORT_CONFIG = {
+        "opset_version": 11,
+        "dynamic_axes": True,
+        "simplify": True,  # 使用onnx-simplifier简化模型
+    }
+
+    # TensorRT配置
+    TENSORRT_CONFIG = {
+        "fp16_mode": True,  # 启用FP16
+        "max_batch_size": 1,
+        "max_workspace_size": 1 << 30,  # 1GB工作空间
+    }
+
     @classmethod
     def get_output_dir(cls, subdir: str = "") -> Path:
         """获取输出目录"""
