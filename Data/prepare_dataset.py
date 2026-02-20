@@ -1,236 +1,142 @@
 """
-数据集准备工具
-将SSDD和SeaShips数据集转换为YOLO格式，统一使用旋转框格式（6参数）
+数据集准备模块 - 简化版
+自动处理数据集并统一为旋转框格式
 """
-import os
 import shutil
 from pathlib import Path
-from typing import Tuple, List
+from typing import Dict, List, Tuple
+import random
+
 from Config.config import Config
 
 
 class DatasetPreparer:
-    """数据集准备器，统一输出旋转框格式（6参数）"""
+    """数据集准备器"""
 
-    def __init__(self, output_root: str = None):
-        """
-        初始化准备器
+    def __init__(self, output_root: Path = None):
+        self.output_root = output_root or Config.get_output_dir("dataset")
+        self.train_dir = self.output_root / "train"
+        self.val_dir = self.output_root / "val"
+        self.test_dir = self.output_root / "test"
 
-        Args:
-            output_root: 输出根目录，默认使用配置中的路径
-        """
-        self.output_root = Path(output_root or Config.OUTPUT_ROOT)
-        self.train_img_dir = self.output_root / "images/train"
-        self.val_img_dir = self.output_root / "images/val"
-        self.train_label_dir = self.output_root / "labels/train"
-        self.val_label_dir = self.output_root / "labels/val"
+        for d in [self.train_dir, self.val_dir, self.test_dir]:
+            (d / "images").mkdir(parents=True, exist_ok=True)
+            (d / "labels").mkdir(parents=True, exist_ok=True)
 
-        self._create_directories()
+    def prepare_dataset(self, train_ratio: float = 0.8, val_ratio: float = 0.1):
+        """准备完整数据集"""
+        print("\n" + "=" * 60)
+        print("📦 准备数据集")
+        print("=" * 60)
 
-    def _create_directories(self) -> None:
-        """创建输出目录"""
-        for d in [self.train_img_dir, self.val_img_dir,
-                  self.train_label_dir, self.val_label_dir]:
-            d.mkdir(parents=True, exist_ok=True)
+        # 收集所有数据
+        all_data = self._collect_all_data()
+        print(f"   找到 {len(all_data)} 个样本")
 
-    @staticmethod
-    def _parse_and_convert_label(line: str) -> str:
-        """
-        解析并转换单个标签行为统一旋转框格式（6参数）
+        # 划分数据集
+        random.shuffle(all_data)
+        n = len(all_data)
+        n_train = int(n * train_ratio)
+        n_val = int(n * val_ratio)
 
-        统一输出格式: class_id x_center y_center width height angle
-        - 如果是旋转框，保留原始角度
-        - 如果是水平框，角度设为0
+        train_data = all_data[:n_train]
+        val_data = all_data[n_train:n_train + n_val]
+        test_data = all_data[n_train + n_val:]
 
-        Args:
-            line: 标签行文本
+        print(f"   训练集: {len(train_data)}")
+        print(f"   验证集: {len(val_data)}")
+        print(f"   测试集: {len(test_data)}")
 
-        Returns:
-            转换后的标签行（6参数格式），如果无效则返回空字符串
-        """
-        parts = line.strip().split()
-        if len(parts) < 5:
-            return ""
+        # 复制文件
+        self._copy_files(train_data, self.train_dir)
+        self._copy_files(val_data, self.val_dir)
+        self._copy_files(test_data, self.test_dir)
 
-        # 判断是否为旋转框 (6个参数)
-        is_rotated = len(parts) >= 6
+        print(f"\n✅ 数据集准备完成: {self.output_root}")
+        return str(self.output_root)
 
-        if is_rotated:
-            # 已经是旋转框，保留格式（类别统一为0）
-            new_parts = ["0"] + parts[1:6]
-        else:
-            # 水平框转旋转框（角度设为0）
-            new_parts = ["0"] + parts[1:5] + ["0"]
+    def _collect_all_data(self) -> List[Tuple[Path, Path]]:
+        """收集所有数据"""
+        data_pairs = []
 
-        return " ".join(new_parts)
+        # SSDD 数据
+        if Config.SSDD_TRAIN_INSHORE_IMG.exists():
+            data_pairs.extend(self._collect_from_dir(
+                Config.SSDD_TRAIN_INSHORE_IMG,
+                Config.SSDD_TRAIN_LABEL
+            ))
 
-    def _copy_and_convert(
-        self,
-        img_dir: str,
-        label_dir: str,
-        out_img_dir: Path,
-        out_label_dir: Path,
-        prefix: str
-    ) -> int:
-        """
-        拷贝图像并转换标签为单类别旋转框格式
+        if Config.SSDD_TRAIN_OFFSHORE_IMG.exists():
+            data_pairs.extend(self._collect_from_dir(
+                Config.SSDD_TRAIN_OFFSHORE_IMG,
+                Config.SSDD_TRAIN_LABEL
+            ))
 
-        Args:
-            img_dir: 源图像目录
-            label_dir: 源标签目录
-            out_img_dir: 输出图像目录
-            out_label_dir: 输出标签目录
-            prefix: 文件名前缀
+        # SeaShips 数据
+        if Config.SEASHIP_IMG.exists():
+            data_pairs.extend(self._collect_from_dir(
+                Config.SEASHIP_IMG,
+                Config.SEASHIP_LABEL
+            ))
 
-        Returns:
-            处理的样本数
-        """
-        img_path = Path(img_dir)
-        label_path = Path(label_dir)
+        return data_pairs
 
-        if not img_path.exists():
-            print(f"⚠️ 图像目录不存在: {img_dir}")
-            return 0
+    def _collect_from_dir(self, img_dir: Path, label_dir: Path) -> List[Tuple[Path, Path]]:
+        """从目录收集数据对"""
+        pairs = []
 
-        if not label_path.exists():
-            print(f"⚠️ 标签目录不存在: {label_dir}")
-            return 0
+        for img_path in img_dir.glob("*.jpg"):
+            label_path = label_dir / f"{img_path.stem}.txt"
+            if label_path.exists():
+                pairs.append((img_path, label_path))
 
-        count = 0
-        rotated_count = 0
-        horizontal_count = 0
+        return pairs
 
-        for img_file in img_path.glob("*.jpg"):
-            name = img_file.stem
-            src_label = label_path / f"{name}.txt"
+    def _copy_files(self, data_pairs: List[Tuple[Path, Path]], target_dir: Path):
+        """复制文件到目标目录"""
+        for img_path, label_path in data_pairs:
+            # 复制图片
+            shutil.copy2(img_path, target_dir / "images" / img_path.name)
 
-            if not src_label.exists():
-                continue
+            # 处理并复制标签
+            self._process_label(label_path, target_dir / "labels" / label_path.name)
 
-            new_name = f"{prefix}_{name}"
+    def _process_label(self, src_label: Path, dst_label: Path):
+        """处理标签文件 - 统一为旋转框格式"""
+        with open(src_label, 'r') as f:
+            lines = f.readlines()
 
-            # 拷贝图像
-            shutil.copy(img_file, out_img_dir / f"{new_name}.jpg")
+        processed_lines = []
+        for line in lines:
+            parts = line.strip().split()
 
-            # 转换标签（统一为ship类别0，旋转框格式）
-            new_labels = []
-            with open(src_label, "r") as f:
-                for line in f:
-                    new_label = self._parse_and_convert_label(line)
-                    if new_label:
-                        new_labels.append(new_label)
-                        # 统计旋转框/水平框
-                        parts = line.strip().split()
-                        if len(parts) >= 6:
-                            rotated_count += 1
-                        else:
-                            horizontal_count += 1
+            if len(parts) == 5:
+                # 水平框: class x_center y_center width height
+                cls_id = parts[0]
+                x, y, w, h = map(float, parts[1:5])
+                # 转换为旋转框格式，角度设为0
+                processed_lines.append(f"{cls_id} {x:.6f} {y:.6f} {w:.6f} {h:.6f} 0.0\n")
+            elif len(parts) == 6:
+                # 旋转框: class x_center y_center width height angle
+                processed_lines.append(line)
+            else:
+                # 其他格式，尝试解析
+                cls_id = parts[0]
+                coords = list(map(float, parts[1:]))
+                if len(coords) >= 4:
+                    x, y, w, h = coords[:4]
+                    angle = coords[4] if len(coords) > 4 else 0.0
+                    processed_lines.append(f"{cls_id} {x:.6f} {y:.6f} {w:.6f} {h:.6f} {angle:.6f}\n")
 
-            if not new_labels:
-                continue
-
-            with open(out_label_dir / f"{new_name}.txt", "w") as f:
-                f.write("\n".join(new_labels))
-
-            count += 1
-
-        if rotated_count > 0 or horizontal_count > 0:
-            print(f"   {prefix}: 处理 {count} 张图像, {rotated_count} 个旋转框, {horizontal_count} 个水平框(角度设为0)")
-
-        return count
-
-    def prepare(self) -> Tuple[int, int]:
-        """
-        准备完整数据集
-
-        Returns:
-            (训练集样本数, 验证集样本数)
-        """
-        print("========== 构建 YOLO 船舶数据集 ==========")
-        print("输出格式: 统一旋转框 (6参数: x_center y_center width height angle)")
-        print("-" * 40)
-
-        train_count = 0
-        val_count = 0
-
-        # SSDD训练集 - 近岸
-        train_count += self._copy_and_convert(
-            Config.SSDD_TRAIN_INSHORE_IMG,
-            Config.SSDD_TRAIN_LABEL,
-            self.train_img_dir,
-            self.train_label_dir,
-            "ssdd_inshore"
-        )
-
-        # SSDD训练集 - 远岸
-        train_count += self._copy_and_convert(
-            Config.SSDD_TRAIN_OFFSHORE_IMG,
-            Config.SSDD_TRAIN_LABEL,
-            self.train_img_dir,
-            self.train_label_dir,
-            "ssdd_offshore"
-        )
-
-        # SSDD验证集 - 近岸测试
-        val_count += self._copy_and_convert(
-            Config.SSDD_TEST_INSHORE_IMG,
-            Config.SSDD_TEST_INSHORE_LABEL,
-            self.val_img_dir,
-            self.val_label_dir,
-            "ssdd_test_inshore"
-        )
-
-        # SSDD验证集 - 远岸测试
-        val_count += self._copy_and_convert(
-            Config.SSDD_TEST_OFFSHORE_IMG,
-            Config.SSDD_TEST_OFFSHORE_LABEL,
-            self.val_img_dir,
-            self.val_label_dir,
-            "ssdd_test_offshore"
-        )
-
-        # SeaShips作为训练集补充
-        train_count += self._copy_and_convert(
-            Config.SEASHIP_IMG,
-            Config.SEASHIP_LABEL,
-            self.train_img_dir,
-            self.train_label_dir,
-            "seaship"
-        )
-
-        print("-" * 40)
-        print(f"训练集样本数: {train_count}")
-        print(f"验证集样本数: {val_count}")
-        print("输出格式: 统一旋转框 (6参数: x_center y_center width height angle)")
-        print("✅ YOLO 数据集构建完成")
-        print("-" * 40)
-        print(f"数据集路径: {self.output_root}")
-
-        return train_count, val_count
+        with open(dst_label, 'w') as f:
+            f.writelines(processed_lines)
 
 
-def prepare_ship_dataset(output_root: str = None) -> Tuple[int, int]:
-    """
-    便捷的数据集准备函数
-
-    Args:
-        output_root: 输出根目录
-
-    Returns:
-        (训练集样本数, 验证集样本数)
-    """
-    preparer = DatasetPreparer(output_root)
-    return preparer.prepare()
+def prepare_dataset():
+    """准备数据集的便捷函数"""
+    preparer = DatasetPreparer()
+    return preparer.prepare_dataset()
 
 
 if __name__ == "__main__":
-    # 验证路径配置
-    valid, errors = Config.validate_paths()
-    if not valid:
-        print("⚠️ 路径验证失败:")
-        for error in errors:
-            print(f"   - {error}")
-        print("\n提示: 可以通过环境变量覆盖默认路径，例如:")
-        print("   export SSDD_TRAIN_INSHORE_IMG=/your/path/to/images")
-    else:
-        prepare_ship_dataset()
+    prepare_dataset()

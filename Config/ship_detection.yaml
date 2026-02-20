@@ -1,0 +1,14 @@
+# 海洋舰船检测数据集配置
+train: D:/ShipDetection_improved/dataset/train/images
+val: D:/ShipDetection_improved/dataset/val/images
+test: D:/ShipDetection_improved/dataset/test/images
+
+# 类别
+names:
+  0: ship
+
+# 类别数
+nc: 1
+
+# 旋转框检测
+task: obb

@@ -1,149 +1,161 @@
 """
-船舶目标检测训练主程序
-支持自动数据集分析、多策略训练和渐进式优化
+主程序 - 简化版
+自动执行：数据准备 -> Baseline训练 -> 改进训练 -> 对比评估 -> 可视化
 """
-import argparse
 import sys
 from pathlib import Path
 
-from Config.config import Config
-from Data.dataset_analyzer import analyze_marine_dataset
-from trainer import ShipDetectionTrainer
-from Data.prepare_dataset import prepare_ship_dataset
+# 添加项目路径
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
 
+from Config.config import Config
+from Data.prepare_dataset import prepare_dataset
+from Data.dataset_analyzer import analyze_dataset
+from trainer import ShipDetectionTrainer
+from evaluation.evaluator import ModelEvaluator
+from evaluation.visualizer import ResultVisualizer
+from ultralytics import YOLO
 
 
 def check_environment():
-    """检查运行环境"""
-    print("🔍 检查运行环境...")
+    """检查环境配置"""
+    print("\n" + "=" * 60)
+    print("🔍 环境检查")
+    print("=" * 60)
 
-    # 检查路径配置
-    valid, errors = Config.validate_paths()
-    if not valid:
-        print("⚠️  部分路径验证失败:")
-        for error in errors:
-            print(f"   - {error}")
-        print("\n提示: 可以通过环境变量覆盖默认路径")
+    # 检查路径
+    if not Config.validate_paths():
+        print("\n⚠️  请配置正确的数据集路径")
+        print("   可以通过环境变量或修改 Config/config.py 设置")
         return False
 
-    print("✅ 环境检查通过")
+    # 检查Ultralytics
+    try:
+        import ultralytics
+        print(f"   Ultralytics 版本: {ultralytics.__version__}")
+    except ImportError:
+        print("   ❌ 未安装 ultralytics")
+        print("   请运行: pip install ultralytics")
+        return False
+
+    # 检查matplotlib
+    try:
+        import matplotlib
+        print(f"   Matplotlib 版本: {matplotlib.__version__}")
+    except ImportError:
+        print("   ⚠️  未安装 matplotlib，可视化功能将不可用")
+        print("   请运行: pip install matplotlib")
+
+    print("\n✅ 环境检查通过")
     return True
+
+
+def run_full_pipeline():
+    """运行完整流程"""
+    print("\n" + "=" * 80)
+    print("🚢 海洋舰船检测 - YOLO11 改进算法完整流程")
+    print("=" * 80)
+
+    # 1. 检查环境
+    if not check_environment():
+        return
+
+    # 2. 分析数据集
+    analyze_dataset()
+
+    # 3. 准备数据集
+    dataset_path = prepare_dataset()
+
+    # 4. 创建训练器
+    data_yaml = "./Config/ship_detection.yaml"
+    trainer = ShipDetectionTrainer(data_yaml)
+
+    # 5. 训练Baseline
+    print("\n" + "=" * 60)
+    print("📌 Step 1: 训练 Baseline 模型")
+    print("=" * 60)
+    baseline_model, _ = trainer.train_baseline()
+
+    # 6. 训练改进模型
+    print("\n" + "=" * 60)
+    print("📌 Step 2: 训练改进模型 (三阶段渐进训练)")
+    print("=" * 60)
+    improved_model, _ = trainer.train_progressive()
+
+    # 7. 对比评估
+    print("\n" + "=" * 60)
+    print("📌 Step 3: 模型对比评估")
+    print("=" * 60)
+
+    # 评估Baseline
+    baseline_evaluator = ModelEvaluator(baseline_model, "Baseline_YOLO11s")
+    baseline_metrics = baseline_evaluator.evaluate(data_yaml)
+
+    # 评估改进模型
+    improved_evaluator = ModelEvaluator(improved_model, "Improved_MarineYOLO")
+    improved_metrics = improved_evaluator.evaluate(data_yaml)
+
+    # 对比
+    comparison = improved_evaluator.compare_with_baseline(baseline_model, data_yaml)
+
+    # 8. 可视化
+    print("\n" + "=" * 60)
+    print("📌 Step 4: 生成可视化图表")
+    print("=" * 60)
+
+    visualizer = ResultVisualizer()
+
+    results = {
+        "Baseline_YOLO11s": baseline_metrics,
+        "Improved_MarineYOLO": improved_metrics
+    }
+
+    visualizer.generate_report(results, comparison)
+
+    # 9. 打印最终对比结果
+    print("\n" + "=" * 80)
+    print("📊 最终对比结果")
+    print("=" * 80)
+
+    print("\n指标对比:")
+    print(f"{'指标':<20} {'Baseline':<12} {'Improved':<12} {'提升':<12} {'提升率':<12}")
+    print("-" * 80)
+
+    for metric, values in comparison.items():
+        baseline_val = values['baseline']
+        improved_val = values['improved']
+        abs_imp = values['absolute_improvement']
+        rel_imp = values['relative_improvement_percent']
+
+        print(f"{metric:<20} {baseline_val:<12.4f} {improved_val:<12.4f} "
+              f"{abs_imp:+<12.4f} {rel_imp:+<12.2f}%")
+
+    # 10. 输出路径信息
+    print("\n" + "=" * 80)
+    print("✅ 所有任务完成！")
+    print("=" * 80)
+    print(f"\n输出目录: {Config.OUTPUT_ROOT}")
+    print("\n模型文件:")
+    print(f"   Baseline:    {Config.OUTPUT_ROOT}/baseline/baseline/weights/best.pt")
+    print(f"   Improved:    {Config.OUTPUT_ROOT}/improved/stage3_refinement/weights/best.pt")
+    print("\n结果文件:")
+    print(f"   评估结果:    {Config.OUTPUT_ROOT}/results/")
+    print(f"   可视化图表:  {Config.OUTPUT_ROOT}/visualization/")
+    print(f"   训练历史:    {Config.OUTPUT_ROOT}/training_history.json")
 
 
 def main():
     """主函数"""
-    parser = argparse.ArgumentParser(
-        description="船舶目标检测训练系统",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-示例:
-  python main.py                    # 自动选择策略
-  python main.py --strategy standard # 使用标准训练
-  python main.py --prepare-only     # 仅准备数据集
-  python main.py --analyze-only     # 仅分析数据集
-
-可用策略:
-  - auto: 自动选择（基于数据集分析）
-  - standard: 标准YOLOv11-s训练
-  - small_object: 小目标优化训练
-  - marine: 海洋环境优化训练
-  - two_stage: 两阶段渐进式训练
-  - three_stage: 三阶段渐进式训练
-  - synergistic: 协同优化训练
-        """
-    )
-
-    parser.add_argument(
-        "--strategy",
-        type=str,
-        default="auto",
-        choices=["auto", "standard", "small_object", "marine",
-                 "two_stage", "three_stage", "synergistic"],
-        help="训练策略 (默认: auto)"
-    )
-
-    parser.add_argument(
-        "--prepare-only",
-        action="store_true",
-        help="仅准备数据集，不训练"
-    )
-
-    parser.add_argument(
-        "--analyze-only",
-        action="store_true",
-        help="仅分析数据集，不训练"
-    )
-
-    parser.add_argument(
-        "--skip-prepare",
-        action="store_true",
-        help="跳过数据集准备"
-    )
-
-    parser.add_argument(
-        "--model-path",
-        type=str,
-        default=None,
-        help="自定义预训练模型路径"
-    )
-
-    args = parser.parse_args()
-
-
-    # 仅分析模式
-    if args.analyze_only:
-        print("📊 数据集分析模式")
-        if not check_environment():
-            return 1
-
-        strategy = analyze_marine_dataset(Config)
-        print(f"\n🎯 推荐训练策略: {strategy}")
-        return 0
-
-    # 检查环境
-    if not check_environment():
-        print("\n是否继续? (y/n): ", end="")
-        response = input().strip().lower()
-        if response != 'y':
-            return 1
-
-    # 准备数据集
-    if not args.skip_prepare:
-        print("\n📁 准备数据集...")
-        train_count, val_count = prepare_ship_dataset()
-
-        if train_count == 0:
-            print("❌ 数据集准备失败，没有找到训练样本")
-            return 1
-
-        print(f"✅ 数据集准备完成: {train_count} 训练样本, {val_count} 验证样本")
-
-        if args.prepare_only:
-            return 0
-    else:
-        print("⏭️  跳过数据集准备")
-
-    # 训练
-    print(f"\n🚀 开始训练 [策略: {args.strategy}]")
-    print("-" * 50)
-
     try:
-        trainer = ShipDetectionTrainer(model_path=args.model_path)
-        model, results = trainer.train(args.strategy)
-
-        print("\n" + "=" * 50)
-        print("✅ 训练完成！")
-        print(f"📁 模型保存位置: runs/detect/*/weights/best.pt")
-        print("=" * 50)
-
-        return 0
-
+        run_full_pipeline()
+    except KeyboardInterrupt:
+        print("\n\n⚠️  用户中断")
     except Exception as e:
-        print(f"\n❌ 训练失败: {e}")
+        print(f"\n\n❌ 错误: {e}")
         import traceback
         traceback.print_exc()
-        return 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
