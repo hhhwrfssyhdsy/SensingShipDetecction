@@ -1,98 +1,149 @@
-from Data.dataset import create_dataloaders
-from Models.trainer import (
-    train_yolov11s_ship_detection, 
-    train_marine_small_object_detection,
-    train_progressive_ship_detection,
-    train_three_stage_progressive,
-    train_synergistic_approach  # 新增协同训练
-)
-from Config.DataReading import *
-from Data.small_object_dataset import MarineSmallObjectDataset
+"""
+船舶目标检测训练主程序
+支持自动数据集分析、多策略训练和渐进式优化
+"""
+import argparse
+import sys
+from pathlib import Path
 
-def analyze_dataset_for_progressive():
-    """
-    为渐进式训练分析数据集
-    """
-    print("🔍 分析数据集以确定渐进式训练策略...")
-    
-    analysis_dataset = MarineSmallObjectDataset(
-        img_paths=[SSDD_train_inshore_img_path, SSDD_train_offshore_img_path, S_img_path],
-        label_paths=[SSDD_train_label_path, SSDD_train_label_path, S_label_path],
-        use_marine_mosaic=False
-    )
-    
-    stats = analysis_dataset.analyze_marine_small_objects()
-    
-    # 确定渐进式策略
-    small_ratio = stats['small'] / stats['total']
-    
-    if small_ratio > 0.5:
-        strategy = 'three_stage'  # 高小目标比例用三阶段
-        print("🎯 检测到高小目标比例，推荐三阶段渐进训练")
-    elif small_ratio > 0.25:
-        strategy = 'two_stage'    # 中等小目标比例用两阶段
-        print("🎯 检测到中等小目标比例，推荐两阶段渐进训练")
-    else:
-        strategy = 'standard'     # 低小目标比例用标准训练
-        print("🎯 小目标比例正常，推荐标准训练")
-    
-    return {
-        'strategy': strategy,
-        'small_ratio': small_ratio,
-        'stats': stats
-    }
+from Config.config import Config
+from Data.dataset_analyzer import analyze_marine_dataset
+from trainer import ShipDetectionTrainer
+from Data.prepare_dataset import prepare_ship_dataset
+
+
+
+def check_environment():
+    """检查运行环境"""
+    print("🔍 检查运行环境...")
+
+    # 检查路径配置
+    valid, errors = Config.validate_paths()
+    if not valid:
+        print("⚠️  部分路径验证失败:")
+        for error in errors:
+            print(f"   - {error}")
+        print("\n提示: 可以通过环境变量覆盖默认路径")
+        return False
+
+    print("✅ 环境检查通过")
+    return True
+
 
 def main():
-    """
-    主训练流程 - 协同优化版
-    """
-    print("🚢 开始船舶目标检测训练流程（协同优化版）...")
-    
-    # 步骤0: 分析数据集确定策略
-    analysis = analyze_dataset_for_progressive()
-    
-    # 步骤1: 创建数据加载器
-    print("📊 创建数据加载器...")
-    train_loader, val_loader = create_dataloaders(
-        batch_size=BATCH_SIZE,
-        num_workers=NUM_WORKERS,
-        target_size=TARGET_SIZE
+    """主函数"""
+    parser = argparse.ArgumentParser(
+        description="船舶目标检测训练系统",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  python main.py                    # 自动选择策略
+  python main.py --strategy standard # 使用标准训练
+  python main.py --prepare-only     # 仅准备数据集
+  python main.py --analyze-only     # 仅分析数据集
+
+可用策略:
+  - auto: 自动选择（基于数据集分析）
+  - standard: 标准YOLOv11-s训练
+  - small_object: 小目标优化训练
+  - marine: 海洋环境优化训练
+  - two_stage: 两阶段渐进式训练
+  - three_stage: 三阶段渐进式训练
+  - synergistic: 协同优化训练
+        """
     )
-    
-    print(f"训练集批次: {len(train_loader)}")
-    print(f"验证集批次: {len(val_loader)}")
-    
-    # 步骤2: 根据分析选择训练策略
-    if analysis['small_ratio'] > 0.4:
-        print("🚀 检测到高小目标比例，启动协同优化训练...")
-        print("📋 训练策略: 数据增强 + 模型结构 + 注意力机制 三重优化")
-        model, results = train_synergistic_approach()
-    elif analysis['strategy'] == 'three_stage':
-        print("🔄 开始三阶段渐进式训练...")
-        model, results = train_three_stage_progressive()
-    elif analysis['strategy'] == 'two_stage':
-        print("🔄 开始两阶段渐进式训练...")
-        model, results = train_progressive_ship_detection()
+
+    parser.add_argument(
+        "--strategy",
+        type=str,
+        default="auto",
+        choices=["auto", "standard", "small_object", "marine",
+                 "two_stage", "three_stage", "synergistic"],
+        help="训练策略 (默认: auto)"
+    )
+
+    parser.add_argument(
+        "--prepare-only",
+        action="store_true",
+        help="仅准备数据集，不训练"
+    )
+
+    parser.add_argument(
+        "--analyze-only",
+        action="store_true",
+        help="仅分析数据集，不训练"
+    )
+
+    parser.add_argument(
+        "--skip-prepare",
+        action="store_true",
+        help="跳过数据集准备"
+    )
+
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        default=None,
+        help="自定义预训练模型路径"
+    )
+
+    args = parser.parse_args()
+
+
+    # 仅分析模式
+    if args.analyze_only:
+        print("📊 数据集分析模式")
+        if not check_environment():
+            return 1
+
+        strategy = analyze_marine_dataset(Config)
+        print(f"\n🎯 推荐训练策略: {strategy}")
+        return 0
+
+    # 检查环境
+    if not check_environment():
+        print("\n是否继续? (y/n): ", end="")
+        response = input().strip().lower()
+        if response != 'y':
+            return 1
+
+    # 准备数据集
+    if not args.skip_prepare:
+        print("\n📁 准备数据集...")
+        train_count, val_count = prepare_ship_dataset()
+
+        if train_count == 0:
+            print("❌ 数据集准备失败，没有找到训练样本")
+            return 1
+
+        print(f"✅ 数据集准备完成: {train_count} 训练样本, {val_count} 验证样本")
+
+        if args.prepare_only:
+            return 0
     else:
-        print("🎯 开始标准YOLOv11-s模型训练...")
-        model, results = train_yolov11s_ship_detection()
-    
-    print("✅ 训练完成！")
-    
-    # 步骤3: 显示训练结果总结
-    print("\n📊 训练结果总结:")
-    print(f"📁 最终模型保存在: runs/detect/train/weights/best.pt")
-    
-    if analysis['strategy'] != 'standard':
-        print("🔗 提示: 可以使用 ensemble_inference.py 进行模型集成推理")
-        print("🔍 提示: 可以使用 evaluator.py 进行详细性能评估")
-    
-    # 显示数据集分析结果
-    print(f"\n📈 数据集分析结果:")
-    print(f"   小目标比例: {analysis['small_ratio']:.2%}")
-    print(f"   中目标比例: {analysis['stats']['medium']/analysis['stats']['total']:.2%}")
-    print(f"   大目标比例: {analysis['stats']['large']/analysis['stats']['total']:.2%}")
-    print(f"   海洋检测难度: {analysis['stats']['marine_difficulty']:.2f}")
+        print("⏭️  跳过数据集准备")
+
+    # 训练
+    print(f"\n🚀 开始训练 [策略: {args.strategy}]")
+    print("-" * 50)
+
+    try:
+        trainer = ShipDetectionTrainer(model_path=args.model_path)
+        model, results = trainer.train(args.strategy)
+
+        print("\n" + "=" * 50)
+        print("✅ 训练完成！")
+        print(f"📁 模型保存位置: runs/detect/*/weights/best.pt")
+        print("=" * 50)
+
+        return 0
+
+    except Exception as e:
+        print(f"\n❌ 训练失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
