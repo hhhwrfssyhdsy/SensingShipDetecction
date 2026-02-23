@@ -1,7 +1,6 @@
-# 海洋舰船检测数据集配置
-train: D:/ShipDetection_improved/dataset/train/images
-val: D:/ShipDetection_improved/dataset/val/images
-test: D:/ShipDetection_improved/dataset/test/images
+train: ./dataset/train
+val: ./dataset/val
+test: ./dataset/test
 
 # 类别
 names:

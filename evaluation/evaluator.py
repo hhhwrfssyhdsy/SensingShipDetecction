@@ -5,7 +5,6 @@
 import json
 from pathlib import Path
 from typing import Dict, List, Optional
-import time
 
 from ultralytics import YOLO
 
@@ -130,9 +129,6 @@ def compare_models(
     Returns:
         对比结果
     """
-    print("\n" + "=" * 60)
-    print("📊 模型对比")
-    print("=" * 60)
 
     results = {}
     for name, model in models.items():

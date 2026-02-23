@@ -1,142 +1,223 @@
 """
 数据集准备模块 - 简化版
-自动处理数据集并统一为旋转框格式
+假设数据集已经人工准备好，此模块仅提供验证和统计功能
+
+统一数据集结构（人工准备）：
+    dataset/
+    ├── train/
+    │   ├── images/
+    │   └── labels/
+    ├── val/
+    │   ├── images/
+    │   └── labels/
+    └── test/
+        ├── images/
+        └── labels/
+
+标签格式：YOLO OBB格式 (class x_center y_center width height angle)
+- 角度单位：度（degrees）
+- 水平框角度为0
 """
-import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple
-import random
+import math
 
 from Config.config import Config
 
 
 class DatasetPreparer:
-    """数据集准备器"""
+    """数据集验证器 - 验证人工准备好的数据集"""
 
-    def __init__(self, output_root: Path = None):
-        self.output_root = output_root or Config.get_output_dir("dataset")
-        self.train_dir = self.output_root / "train"
-        self.val_dir = self.output_root / "val"
-        self.test_dir = self.output_root / "test"
+    def __init__(self, dataset_root: Path = None):
+        """
+        初始化数据集验证器
 
-        for d in [self.train_dir, self.val_dir, self.test_dir]:
-            (d / "images").mkdir(parents=True, exist_ok=True)
-            (d / "labels").mkdir(parents=True, exist_ok=True)
+        Args:
+            dataset_root: 数据集根目录，默认为项目目录下的dataset文件夹
+        """
+        self.dataset_root = dataset_root or Config.DATASET_ROOT
+        self.train_dir = self.dataset_root / "train"
+        self.val_dir = self.dataset_root / "val"
+        self.test_dir = self.dataset_root / "test"
 
-    def prepare_dataset(self, train_ratio: float = 0.8, val_ratio: float = 0.1):
-        """准备完整数据集"""
+    def validate_dataset(self) -> Dict[str, any]:
+        """
+        验证数据集结构完整性
+
+        Returns:
+            验证结果字典
+        """
         print("\n" + "=" * 60)
-        print("📦 准备数据集")
+        print("📁 验证数据集")
         print("=" * 60)
+        print(f"   数据集路径: {self.dataset_root}")
 
-        # 收集所有数据
-        all_data = self._collect_all_data()
-        print(f"   找到 {len(all_data)} 个样本")
+        result = {
+            "valid": True,
+            "train": self._validate_split("train", self.train_dir),
+            "val": self._validate_split("val", self.val_dir),
+            "test": self._validate_split("test", self.test_dir),
+        }
 
-        # 划分数据集
-        random.shuffle(all_data)
-        n = len(all_data)
-        n_train = int(n * train_ratio)
-        n_val = int(n * val_ratio)
+        # 检查是否有有效数据
+        total_samples = (result["train"]["count"] +
+                        result["val"]["count"] +
+                        result["test"]["count"])
 
-        train_data = all_data[:n_train]
-        val_data = all_data[n_train:n_train + n_val]
-        test_data = all_data[n_train + n_val:]
+        if total_samples == 0:
+            result["valid"] = False
+            print("\n   ❌ 错误: 未找到任何数据样本")
+            print("   请确保数据集已准备好，结构如下:")
+            print("   dataset/")
+            print("   ├── train/images/ 和 train/labels/")
+            print("   ├── val/images/ 和 val/labels/")
+            print("   └── test/images/ 和 test/labels/")
+        else:
+            print(f"\n✅ 数据集验证通过")
+            print(f"   总样本数: {total_samples}")
+            print(f"   训练集: {result['train']['count']}")
+            print(f"   验证集: {result['val']['count']}")
+            print(f"   测试集: {result['test']['count']}")
 
-        print(f"   训练集: {len(train_data)}")
-        print(f"   验证集: {len(val_data)}")
-        print(f"   测试集: {len(test_data)}")
+        return result
 
-        # 复制文件
-        self._copy_files(train_data, self.train_dir)
-        self._copy_files(val_data, self.val_dir)
-        self._copy_files(test_data, self.test_dir)
+    def _validate_split(self, split_name: str, split_dir: Path) -> Dict[str, any]:
+        """
+        验证数据集划分（train/val/test）
 
-        print(f"\n✅ 数据集准备完成: {self.output_root}")
-        return str(self.output_root)
+        Args:
+            split_name: 划分名称
+            split_dir: 划分目录
 
-    def _collect_all_data(self) -> List[Tuple[Path, Path]]:
-        """收集所有数据"""
-        data_pairs = []
+        Returns:
+            验证结果
+        """
+        img_dir = split_dir / "images"
+        label_dir = split_dir / "labels"
 
-        # SSDD 数据
-        if Config.SSDD_TRAIN_INSHORE_IMG.exists():
-            data_pairs.extend(self._collect_from_dir(
-                Config.SSDD_TRAIN_INSHORE_IMG,
-                Config.SSDD_TRAIN_LABEL
-            ))
+        result = {
+            "exists": False,
+            "count": 0,
+            "images_dir": str(img_dir),
+            "labels_dir": str(label_dir),
+        }
 
-        if Config.SSDD_TRAIN_OFFSHORE_IMG.exists():
-            data_pairs.extend(self._collect_from_dir(
-                Config.SSDD_TRAIN_OFFSHORE_IMG,
-                Config.SSDD_TRAIN_LABEL
-            ))
+        if not img_dir.exists():
+            print(f"   ⚠️  {split_name}: 图片目录不存在 - {img_dir}")
+            return result
 
-        # SeaShips 数据
-        if Config.SEASHIP_IMG.exists():
-            data_pairs.extend(self._collect_from_dir(
-                Config.SEASHIP_IMG,
-                Config.SEASHIP_LABEL
-            ))
+        if not label_dir.exists():
+            print(f"   ⚠️  {split_name}: 标签目录不存在 - {label_dir}")
+            return result
 
-        return data_pairs
+        # 统计图片和标签
+        img_files = list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png")) + list(img_dir.glob("*.jpeg"))
+        label_files = list(label_dir.glob("*.txt"))
 
-    def _collect_from_dir(self, img_dir: Path, label_dir: Path) -> List[Tuple[Path, Path]]:
-        """从目录收集数据对"""
-        pairs = []
-
-        for img_path in img_dir.glob("*.jpg"):
+        # 匹配的图片-标签对
+        matched = 0
+        for img_path in img_files:
             label_path = label_dir / f"{img_path.stem}.txt"
             if label_path.exists():
-                pairs.append((img_path, label_path))
+                matched += 1
 
-        return pairs
+        result["exists"] = True
+        result["count"] = matched
 
-    def _copy_files(self, data_pairs: List[Tuple[Path, Path]], target_dir: Path):
-        """复制文件到目标目录"""
-        for img_path, label_path in data_pairs:
-            # 复制图片
-            shutil.copy2(img_path, target_dir / "images" / img_path.name)
+        if matched > 0:
+            print(f"   ✓ {split_name}: {matched} 个样本")
+        else:
+            print(f"   ⚠️  {split_name}: 目录存在但无匹配样本")
 
-            # 处理并复制标签
-            self._process_label(label_path, target_dir / "labels" / label_path.name)
+        return result
 
-    def _process_label(self, src_label: Path, dst_label: Path):
-        """处理标签文件 - 统一为旋转框格式"""
-        with open(src_label, 'r') as f:
-            lines = f.readlines()
+    def analyze_labels(self, max_samples: int = 100) -> Dict[str, any]:
+        """
+        分析标签格式和统计信息
 
-        processed_lines = []
-        for line in lines:
-            parts = line.strip().split()
+        Args:
+            max_samples: 最大分析样本数
 
-            if len(parts) == 5:
-                # 水平框: class x_center y_center width height
-                cls_id = parts[0]
-                x, y, w, h = map(float, parts[1:5])
-                # 转换为旋转框格式，角度设为0
-                processed_lines.append(f"{cls_id} {x:.6f} {y:.6f} {w:.6f} {h:.6f} 0.0\n")
-            elif len(parts) == 6:
-                # 旋转框: class x_center y_center width height angle
-                processed_lines.append(line)
-            else:
-                # 其他格式，尝试解析
-                cls_id = parts[0]
-                coords = list(map(float, parts[1:]))
-                if len(coords) >= 4:
-                    x, y, w, h = coords[:4]
-                    angle = coords[4] if len(coords) > 4 else 0.0
-                    processed_lines.append(f"{cls_id} {x:.6f} {y:.6f} {w:.6f} {h:.6f} {angle:.6f}\n")
+        Returns:
+            分析结果
+        """
+        print("\n" + "=" * 60)
+        print("📊 分析标签格式")
+        print("=" * 60)
 
-        with open(dst_label, 'w') as f:
-            f.writelines(processed_lines)
+        stats = {
+            "total_labels": 0,
+            "horizontal_boxes": 0,  # 角度为0的框
+            "rotated_boxes": 0,     # 角度不为0的框
+            "avg_objects_per_image": 0,
+            "angle_range": {"min": float('inf'), "max": float('-inf')},
+        }
+
+        label_files = []
+        for split_dir in [self.train_dir, self.val_dir, self.test_dir]:
+            label_dir = split_dir / "labels"
+            if label_dir.exists():
+                label_files.extend(list(label_dir.glob("*.txt")))
+
+        if not label_files:
+            print("   ⚠️  未找到标签文件")
+            return stats
+
+        # 限制分析样本数
+        label_files = label_files[:max_samples]
+
+        total_objects = 0
+        angles = []
+
+        for label_path in label_files:
+            try:
+                with open(label_path, 'r') as f:
+                    lines = f.readlines()
+
+                for line in lines:
+                    parts = line.strip().split()
+                    if len(parts) >= 6:
+                        # YOLO OBB格式: class x y w h angle
+                        angle = float(parts[5])
+                        angles.append(angle)
+                        total_objects += 1
+
+                        if abs(angle) < 0.1:  # 接近0视为水平框
+                            stats["horizontal_boxes"] += 1
+                        else:
+                            stats["rotated_boxes"] += 1
+
+            except Exception as e:
+                continue
+
+        stats["total_labels"] = len(label_files)
+        stats["avg_objects_per_image"] = total_objects / len(label_files) if label_files else 0
+
+        if angles:
+            stats["angle_range"]["min"] = min(angles)
+            stats["angle_range"]["max"] = max(angles)
+
+        print(f"   分析样本: {len(label_files)}")
+        print(f"   总目标数: {total_objects}")
+        print(f"   平均每图目标数: {stats['avg_objects_per_image']:.2f}")
+        print(f"   水平框: {stats['horizontal_boxes']}")
+        print(f"   旋转框: {stats['rotated_boxes']}")
+        if angles:
+            print(f"   角度范围: {stats['angle_range']['min']:.2f}° ~ {stats['angle_range']['max']:.2f}°")
+
+        return stats
 
 
-def prepare_dataset():
-    """准备数据集的便捷函数"""
+def validate_dataset():
+    """验证数据集的便捷函数"""
     preparer = DatasetPreparer()
-    return preparer.prepare_dataset()
+    result = preparer.validate_dataset()
+
+    if result["valid"]:
+        preparer.analyze_labels()
+
+    return result
 
 
 if __name__ == "__main__":
-    prepare_dataset()
+    validate_dataset()

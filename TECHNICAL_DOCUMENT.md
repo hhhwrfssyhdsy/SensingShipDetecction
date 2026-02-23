@@ -124,12 +124,7 @@ EDGE_TRAINING_CONFIG = {
     "dropout": 0.1,               # 添加dropout防止过拟合
 }
 
-# 模型压缩目标
-EDGE_COMPRESSION_TARGETS = {
-    "max_model_size_mb": 50,      # 最大模型大小 (MB)
-    "min_fps": 15,                # 最低FPS要求
-    "target_latency_ms": 66,      # 目标延迟 (ms, 约15FPS)
-}
+
 ```
 
 ### 4.3 边缘优化训练流程
@@ -151,13 +146,7 @@ EDGE_COMPRESSION_TARGETS = {
 │  ├─ 模型剪枝 (移除20%不重要通道)                             │
 │  └─ 量化准备 (INT8)                                          │
 │                                                              │
-│  步骤3: 性能基准测试                                          │
-│  ├─ 测试平均推理时间 (ms)                                    │
-│  ├─ 计算FPS                                                  │
-│  ├─ 测量模型大小 (MB)                                        │
-│  └─ 统计参数量                                               │
-│                                                              │
-│  步骤4: 导出ONNX模型                                          │
+│  步骤3: 导出ONNX模型                                          │
 │  ├─ 生成edge_optimized.onnx                                 │
 │  └─ 保存部署信息 (deployment_info.json)                      │
 │                                                              │
@@ -326,9 +315,8 @@ python main.py
 5. 训练改进模型（三阶段，共130轮）
 6. **训练边缘优化模型（100轮 + 优化）** ⭐
 7. 三模型对比评估
-8. 边缘设备性能测试
-9. 导出ONNX部署模型
-10. 生成可视化图表
+8. 导出ONNX部署模型
+9. 生成可视化图表
 
 ### 5.2 仅训练边缘优化模型
 
@@ -402,9 +390,7 @@ D:/ShipDetection_improved/
             "precision": 0.8712,
             "recall": 0.8456
         },
-        "benchmark": {
-            "avg_inference_time_ms": 15.23,
-            "fps": 65.67,
+        "model_info": {
             "model_size_mb": 12.45,
             "num_parameters": 3456789
         }
@@ -424,9 +410,15 @@ D:/ShipDetection_improved/
 ### 7.1 环境变量
 
 ```bash
-# 数据集路径
-export SSDD_TRAIN_INSHORE_IMG="/path/to/train_inshore"
-export SSDD_TRAIN_LABEL="/path/to/train_labels"
+# SSDD数据集路径
+export SSDD_TRAIN_INSHORE_IMG="/path/to/SSDD/train_inshore/images"
+export SSDD_TRAIN_OFFSHORE_IMG="/path/to/SSDD/train_offshore/images"
+export SSDD_TEST_INSHORE_IMG="/path/to/SSDD/test_inshore/images"
+export SSDD_TEST_OFFSHORE_IMG="/path/to/SSDD/test_offshore/images"
+
+# RSDD-SAR数据集路径
+export RSDD_SAR_IMG="/path/to/RSDD-SAR/images"
+export RSDD_SAR_LABEL="/path/to/RSDD-SAR/labels"
 
 # 训练参数
 export TARGET_SIZE=640
@@ -488,12 +480,10 @@ EDGE_OPTIMIZATION = {
 
 ### 8.2 边缘设备性能指标 ⭐
 
-| 指标 | 说明 | 目标值 |
-|------|------|--------|
-| FPS | 每秒处理帧数 | ≥15 |
-| Latency | 单帧推理延迟 (ms) | ≤66 |
-| Model Size | 模型大小 (MB) | ≤50 |
-| Parameters | 参数量 | 最小化 |
+| 指标 | 说明 |
+|------|------|
+| Model Size | 模型大小 (MB) |
+| Parameters | 参数量 |
 
 ### 8.3 三模型对比维度
 
@@ -541,19 +531,8 @@ precision            0.8123       0.8823       0.8712       +0.0589
 recall               0.7890       0.8567       0.8456       +0.0566
 
 边缘设备性能:
-   平均推理时间: 15.23 ms
-   FPS: 65.67
    模型大小: 12.45 MB
    参数量: 3,456,789
-
-边缘设备目标检查:
-   模型大小目标: 50 MB
-   实际模型大小: 12.45 MB
-   状态: ✅ 通过
-
-   FPS目标: 15
-   实际FPS: 65.67
-   状态: ✅ 通过
 ```
 
 ---
@@ -562,7 +541,7 @@ recall               0.7890       0.8567       0.8456       +0.0566
 
 1. **显存要求**: 建议使用至少8GB显存的GPU
 2. **训练时间**: 完整训练约需数小时（取决于硬件）
-3. **数据准备**: 确保数据集路径正确配置
+3. **数据准备**: 确保SSDD和RSDD-SAR数据集路径正确配置
 4. **边缘优化**: 优化后模型更适合嵌入式部署
 5. **精度损失**: 边缘优化通常带来<3%的精度损失
 
@@ -615,7 +594,8 @@ python test/test_edge_standalone.py
 pip install ultralytics matplotlib
 
 # 2. 配置数据路径（可选）
-export SSDD_TRAIN_INSHORE_IMG="/your/path"
+export SSDD_TRAIN_INSHORE_IMG="/path/to/SSDD/train_inshore/images"
+export RSDD_SAR_IMG="/path/to/RSDD-SAR/images"
 
 # 3. 运行完整流程
 python main.py
@@ -635,7 +615,7 @@ ls D:/ShipDetection_improved/
 - ✅ 新增INT8量化支持 (ModelQuantizer)
 - ✅ 新增ONNX导出功能
 - ✅ 集成边缘优化到主流程 (main.py)
-- ✅ 新增边缘设备性能测试
+
 - ✅ 新增部署信息导出 (deployment_info.json)
 - ✅ 完善单元测试 (test_edge_standalone.py)
 - ✅ 更新技术文档 (本文档)

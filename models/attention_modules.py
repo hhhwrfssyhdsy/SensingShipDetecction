@@ -15,6 +15,8 @@ class SEAttention(nn.Module):
 
     def __init__(self, channels: int, reduction: int = 16):
         super().__init__()
+        #全局平均池化avg_pool
+        #对每个通道的整个特征图求平均
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Sequential(
             nn.Linear(channels, channels // reduction, bias=False),

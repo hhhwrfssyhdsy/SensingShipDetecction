@@ -10,7 +10,7 @@ from datetime import datetime
 from ultralytics import YOLO
 
 from Config.config import Config
-from models.custom_yolo import create_baseline_model, create_improved_model
+from models.custom_yolo import create_baseline_model, create_improved_model, apply_attention_to_model
 
 
 class ShipDetectionTrainer:
@@ -98,13 +98,17 @@ class ShipDetectionTrainer:
             # 创建或加载模型
             if i == 1:
                 model = create_improved_model(stage['attention'])
+                print(f"   ✅ 已创建带 {stage['attention']} 注意力的改进模型")
             else:
                 # 加载上一阶段最佳模型
                 if best_model_path and Path(best_model_path).exists():
                     print(f"   加载上一阶段模型: {best_model_path}")
                     model = YOLO(best_model_path)
+                    # 为加载的模型应用新的注意力
+                    model = apply_attention_to_model(model, stage['attention'])
                 else:
                     model = create_improved_model(stage['attention'])
+                    print(f"   ✅ 已创建带 {stage['attention']} 注意力的改进模型")
 
             # 训练参数
             train_args = {
@@ -189,90 +193,57 @@ class ShipDetectionTrainer:
         print(f"\n   训练历史已保存: {history_file}")
 
 
-    def train_edge_optimized(self) -> Tuple[YOLO, Dict]:
+    def export_for_edge_deployment(
+        self,
+        baseline_model_path: str = None,
+        improved_model_path: str = None
+    ) -> Dict[str, str]:
         """
-        训练边缘优化模型
+        导出Baseline和改进模型用于边缘设备部署
+
+        Args:
+            baseline_model_path: Baseline模型路径，默认使用训练输出
+            improved_model_path: 改进模型路径，默认使用训练输出
 
         Returns:
-            (优化后的模型, 训练结果)
+            导出的模型路径字典
         """
-        from models.edge_optimization import EdgeOptimizer, create_optimized_model
+        from models.edge_optimization import export_comparison_models
 
         print("\n" + "=" * 60)
-        print("🚀 训练边缘优化模型")
+        print("📦 导出模型用于边缘设备部署")
         print("=" * 60)
 
-        edge_config = Config.EDGE_OPTIMIZATION
-        edge_training = Config.EDGE_TRAINING_CONFIG
+        # 默认路径
+        if baseline_model_path is None:
+            baseline_model_path = str(self.output_root / "baseline" / "baseline" / "weights" / "best.pt")
 
-        print(f"   轻量化模块: {edge_config['use_lightweight_blocks']}")
-        print(f"   模型剪枝: {edge_config['use_pruning']} (比例: {edge_config['pruning_ratio']})")
-        print(f"   量化: {edge_config['use_quantization']} ({edge_config['quantization_bits']}bit)")
-        print(f"   训练轮数: {edge_training['epochs']}")
-        print(f"   批次大小: {edge_training['batch_size']}")
+        if improved_model_path is None:
+            improved_model_path = str(self.output_root / "improved" / "stage3_refinement" / "weights" / "best.pt")
 
-        # 1. 首先训练基础模型
-        print("\n📌 步骤1: 训练基础模型")
-        model = create_improved_model("se")
+        # 检查模型是否存在
+        baseline_exists = Path(baseline_model_path).exists()
+        improved_exists = Path(improved_model_path).exists()
 
-        output_dir = self.output_root / "edge_optimized"
-        output_dir.mkdir(parents=True, exist_ok=True)
+        if not baseline_exists:
+            print(f"   ⚠️  Baseline模型不存在: {baseline_model_path}")
+            print("      请先训练Baseline模型")
+            return {}
 
-        results = model.train(
-            data=self.data_path,
-            epochs=edge_training['epochs'],
-            imgsz=Config.TARGET_SIZE,
-            batch=edge_training['batch_size'],
-            device=Config.DEVICE,
-            workers=Config.NUM_WORKERS,
-            project=str(output_dir),
-            name="base_training",
-            task='obb',
-            lr0=edge_training['learning_rate'],
-            weight_decay=edge_training['weight_decay'],
-            label_smoothing=edge_training['label_smoothing'],
-            dropout=edge_training['dropout'],
-            verbose=True,
-            exist_ok=True,
+        if not improved_exists:
+            print(f"   ⚠️  改进模型不存在: {improved_model_path}")
+            print("      请先训练改进模型")
+            return {}
+
+        # 导出模型
+        output_dir = str(self.output_root / "edge_deployment")
+        results = export_comparison_models(
+            baseline_model_path,
+            improved_model_path,
+            output_dir
         )
 
-        # 2. 应用边缘优化
-        print("\n📌 步骤2: 应用边缘优化")
-        optimizer = EdgeOptimizer(model.model)
-
-        optimized_model = optimizer.optimize_for_edge(
-            use_lightweight_blocks=edge_config['use_lightweight_blocks'],
-            use_pruning=edge_config['use_pruning'],
-            use_quantization=edge_config['use_quantization'],
-            pruning_ratio=edge_config['pruning_ratio']
-        )
-
-        # 3. 基准测试
-        print("\n📌 步骤3: 性能基准测试")
-        benchmark_results = optimizer.benchmark()
-
-        # 4. 导出ONNX
-        print("\n📌 步骤4: 导出ONNX模型")
-        onnx_path = optimizer.export_to_onnx(str(output_dir / "edge_model.onnx"))
-
-        # 5. 保存结果
-        edge_results = {
-            "base_metrics": {
-                "mAP50": float(results.results_dict.get('metrics/mAP50', 0)),
-                "mAP50_95": float(results.results_dict.get('metrics/mAP50-95', 0)),
-            },
-            "benchmark": benchmark_results,
-            "optimization_config": edge_config,
-        }
-
-        with open(output_dir / "edge_results.json", 'w') as f:
-            json.dump(edge_results, f, indent=2)
-
-        print(f"\n✅ 边缘优化模型训练完成")
-        print(f"   模型路径: {output_dir}/base_training/weights/best.pt")
-        print(f"   ONNX路径: {onnx_path}")
-
-        return model, edge_results
+        return results
 
 
 def train_all():
@@ -285,17 +256,20 @@ def train_all():
     # 训练改进模型
     improved_model, _ = trainer.train_progressive()
 
-    # 训练边缘优化模型
+    # 导出边缘部署模型
     if Config.EDGE_OPTIMIZATION['enabled']:
-        edge_model, _ = trainer.train_edge_optimized()
+        print("\n📦 导出边缘部署模型...")
+        export_results = trainer.export_for_edge_deployment()
+        if export_results:
+            print("   ✅ 模型导出完成，可用于边缘设备部署")
 
     return baseline_model, improved_model
 
 
-def train_edge_only():
-    """仅训练边缘优化模型"""
+def export_for_edge():
+    """仅导出模型用于边缘部署"""
     trainer = ShipDetectionTrainer()
-    return trainer.train_edge_optimized()
+    return trainer.export_for_edge_deployment()
 
 
 if __name__ == "__main__":

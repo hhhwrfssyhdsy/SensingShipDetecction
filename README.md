@@ -52,12 +52,19 @@ pip install ultralytics matplotlib
 
 ```python
 # 方式1: 直接修改 config.py
+# SSDD数据集路径
 SSDD_TRAIN_INSHORE_IMG = Path("D:/DataSet/SSDD/train_inshore/images")
-SSDD_TRAIN_LABEL = Path("D:/DataSet/SSDD/train_inshore/labels")
+SSDD_TRAIN_OFFSHORE_IMG = Path("D:/DataSet/SSDD/train_offshore/images")
+SSDD_TEST_INSHORE_IMG = Path("D:/DataSet/SSDD/test_inshore/images")
+SSDD_TEST_OFFSHORE_IMG = Path("D:/DataSet/SSDD/test_offshore/images")
+
+# RSDD-SAR数据集路径
+RSDD_SAR_IMG = Path("D:/DataSet/RSDD-SAR/images")
+RSDD_SAR_LABEL = Path("D:/DataSet/RSDD-SAR/labels")
 
 # 方式2: 环境变量
 set SSDD_TRAIN_INSHORE_IMG=D:\DataSet\SSDD\train_inshore\images
-set SSDD_TRAIN_LABEL=D:\DataSet\SSDD\train_inshore\labels
+set RSDD_SAR_IMG=D:\DataSet\RSDD-SAR\images
 ```
 
 ### 3. 运行完整流程
@@ -74,9 +81,8 @@ python main.py
 5. 改进模型训练 (三阶段: 60+40+30轮)
 6. **边缘设备优化** ⭐
 7. 模型对比评估（Baseline vs Improved vs Edge）
-8. 边缘设备性能测试
-9. 导出ONNX部署模型
-10. 生成可视化图表
+8. 导出ONNX部署模型
+9. 生成可视化图表
 
 ### 4. 仅运行对比（已有模型）
 
@@ -126,13 +132,6 @@ EDGE_OPTIMIZATION = {
 
 # 边缘设备目标平台
 EDGE_TARGET_PLATFORMS = ["cpu", "gpu", "jetson", "raspberry_pi", "openvino"]
-
-# 模型压缩目标
-EDGE_COMPRESSION_TARGETS = {
-    "max_model_size_mb": 50,      # 最大模型大小 (MB)
-    "min_fps": 15,                # 最低FPS要求
-    "target_latency_ms": 66,      # 目标延迟 (ms, 约15FPS)
-}
 ```
 
 ### 边缘优化训练流程
@@ -149,10 +148,7 @@ EDGE_COMPRESSION_TARGETS = {
 │     ├─> 模型剪枝 (20%通道)                                   │
 │     └─> 量化准备                                             │
 │                                                              │
-│  3. 性能基准测试                                              │
-│     └─> 测试FPS、延迟、模型大小                               │
-│                                                              │
-│  4. 导出ONNX模型                                              │
+│  3. 导出ONNX模型                                              │
 │     └─> 边缘设备部署                                         │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -240,10 +236,10 @@ EDGE_TRAINING_CONFIG = {
 ### 数据路径配置
 
 支持的数据集:
-- SSDD (SAR Ship Detection Dataset)
-- SeaShips
+- **SSDD** (SAR Ship Detection Dataset) - 近岸/离岸SAR舰船检测数据集
+- **RSDD-SAR** (Remote Sensing Ship Detection Dataset) - 遥感SAR舰船检测数据集
 
-自动统一为旋转框格式 (YOLO OBB)。
+自动统一为旋转框格式 (YOLO OBB)，角度单位自动从弧度转换为角度。
 
 ## 注意力机制
 
@@ -299,8 +295,6 @@ INT8量化，降低模型精度提升速度:
 - **Recall**: 召回率
 
 ### 边缘设备性能指标
-- **FPS**: 每秒处理帧数
-- **Latency**: 单帧推理延迟 (ms)
 - **Model Size**: 模型大小 (MB)
 - **Parameters**: 参数量
 
@@ -319,19 +313,8 @@ precision            0.8123       0.8823       0.8712       +0.0589
 recall               0.7890       0.8567       0.8456       +0.0566
 
 边缘设备性能:
-   平均推理时间: 15.23 ms
-   FPS: 65.67
    模型大小: 12.45 MB
    参数量: 3,456,789
-
-边缘设备目标检查:
-   模型大小目标: 50 MB
-   实际模型大小: 12.45 MB
-   状态: ✅ 通过
-
-   FPS目标: 15
-   实际FPS: 65.67
-   状态: ✅ 通过
 ```
 
 ## 单元测试
@@ -342,11 +325,6 @@ recall               0.7890       0.8567       0.8456       +0.0566
 python test/run_all_tests.py
 ```
 
-运行边缘优化测试:
-
-```bash
-python test/test_edge_standalone.py
-```
 
 ## 注意事项
 
@@ -391,19 +369,6 @@ session = ort.InferenceSession('edge_optimized.onnx')
 ## 技术细节
 
 详见 [TECHNICAL_DOCUMENT.md](TECHNICAL_DOCUMENT.md)
-
-## 更新日志
-
-### v2.0 - 边缘设备优化版
-- ✅ 新增边缘优化模块 (edge_optimization.py)
-- ✅ 新增轻量化网络模块 (DepthwiseSeparableConv, GhostModule)
-- ✅ 新增模型剪枝功能
-- ✅ 新增INT8量化支持
-- ✅ 新增ONNX导出功能
-- ✅ 集成边缘优化到主流程
-- ✅ 新增边缘设备性能测试
-- ✅ 新增部署信息导出
-- ✅ 完善单元测试
 
 ## 许可证
 
