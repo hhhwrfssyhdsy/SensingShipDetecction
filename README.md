@@ -48,23 +48,18 @@ pip install ultralytics matplotlib
 
 ### 2. 配置数据路径
 
-编辑 `Config/config.py` 或设置环境变量:
-
-```python
-# 方式1: 直接修改 config.py
-# SSDD数据集路径
-SSDD_TRAIN_INSHORE_IMG = Path("D:/DataSet/SSDD/train_inshore/images")
-SSDD_TRAIN_OFFSHORE_IMG = Path("D:/DataSet/SSDD/train_offshore/images")
-SSDD_TEST_INSHORE_IMG = Path("D:/DataSet/SSDD/test_inshore/images")
-SSDD_TEST_OFFSHORE_IMG = Path("D:/DataSet/SSDD/test_offshore/images")
-
-# RSDD-SAR数据集路径
-RSDD_SAR_IMG = Path("D:/DataSet/RSDD-SAR/images")
-RSDD_SAR_LABEL = Path("D:/DataSet/RSDD-SAR/labels")
-
-# 方式2: 环境变量
-set SSDD_TRAIN_INSHORE_IMG=D:\DataSet\SSDD\train_inshore\images
-set RSDD_SAR_IMG=D:\DataSet\RSDD-SAR\images
+在项目根目录下，将数据集放在 `dataset` 文件夹下。
+```
+#   dataset/
+#   ├── train/
+#   │   ├── images/
+#   │   └── labels/
+#   ├── val/
+#   │   ├── images/
+#   │   └── labels/
+#   └── test/
+#       ├── images/
+#       └── labels/
 ```
 
 ### 3. 运行完整流程
@@ -79,8 +74,8 @@ python main.py
 3. 数据准备
 4. Baseline训练 (130轮)
 5. 改进模型训练 (三阶段: 60+40+30轮)
-6. **边缘设备优化** ⭐
-7. 模型对比评估（Baseline vs Improved vs Edge）
+6. 边缘设备优化
+7. 模型对比评估（Baseline vs Improved）
 8. 导出ONNX部署模型
 9. 生成可视化图表
 
@@ -90,12 +85,6 @@ python main.py
 python run_comparison.py
 ```
 
-### 5. 仅训练边缘优化模型
-
-```python
-from trainer import train_edge_only
-train_edge_only()
-```
 
 ## 三阶段渐进训练
 
@@ -107,7 +96,7 @@ train_edge_only()
 
 **总轮数**: 130轮（与Baseline相同，公平对比）
 
-## 边缘设备优化 ⭐
+## 边缘设备优化
 
 ### 优化技术
 
@@ -155,8 +144,10 @@ EDGE_TARGET_PLATFORMS = ["cpu", "gpu", "jetson", "raspberry_pi", "openvino"]
 
 ## 输出结果
 
+输出目录由 `Config.OUTPUT_ROOT` 决定，默认为项目目录下的 `output/` 文件夹：
+
 ```
-D:/ShipDetection_improved/
+<PROJECT_ROOT>/output/
 ├── baseline/
 │   └── baseline/
 │       └── weights/
@@ -167,12 +158,12 @@ D:/ShipDetection_improved/
 │   └── stage3_refinement/           # 第三阶段（最终模型）
 │       └── weights/
 │           └── best.pt
-├── edge_optimized/                  # ⭐ 边缘优化模型
+├── edge_optimized/                  # 边缘优化模型
 │   ├── base_training/
 │   │   └── weights/
 │   │       └── best.pt
 │   └── edge_results.json
-├── edge_deployment/                 # ⭐ 边缘部署文件
+├── edge_deployment/                 # 边缘部署文件
 │   ├── edge_optimized.onnx          # ONNX模型
 │   └── deployment_info.json         # 部署信息
 ├── results/
@@ -215,7 +206,7 @@ PROGRESSIVE_STAGES = [
     {"epochs": 30, "attention": "marine", ...},
 ]
 
-# ⭐ 边缘优化配置
+# 边缘优化配置
 EDGE_OPTIMIZATION = {
     "enabled": True,
     "use_lightweight_blocks": True,
@@ -233,13 +224,33 @@ EDGE_TRAINING_CONFIG = {
 }
 ```
 
-### 数据路径配置
+### 数据集配置
 
-支持的数据集:
+**数据集需人工准备**，放置在项目根目录下的 `dataset` 文件夹中：
+
+```
+dataset/
+├── train/
+│   ├── images/          # 训练图片 (.jpg/.png)
+│   └── labels/          # 训练标签 (.txt)
+├── val/
+│   ├── images/          # 验证图片
+│   └── labels/          # 验证标签
+└── test/
+    ├── images/          # 测试图片
+    └── labels/          # 测试标签
+```
+
+**标签格式：** YOLO OBB格式
+```
+class x_center y_center width height angle
+```
+- 角度单位：**度（degrees）**
+- 水平框角度设为 **0**
+
+**推荐数据集:**
 - **SSDD** (SAR Ship Detection Dataset) - 近岸/离岸SAR舰船检测数据集
 - **RSDD-SAR** (Remote Sensing Ship Detection Dataset) - 遥感SAR舰船检测数据集
-
-自动统一为旋转框格式 (YOLO OBB)，角度单位自动从弧度转换为角度。
 
 ## 注意力机制
 

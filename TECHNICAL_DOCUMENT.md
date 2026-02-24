@@ -337,8 +337,10 @@ python run_comparison.py
 
 ### 6.1 模型文件
 
+输出目录由 `Config.OUTPUT_ROOT` 决定，默认为项目目录下的 `output/` 文件夹：
+
 ```
-D:/ShipDetection_improved/
+<PROJECT_ROOT>/output/
 ├── baseline/
 │   └── baseline/
 │       └── weights/
@@ -410,16 +412,6 @@ D:/ShipDetection_improved/
 ### 7.1 环境变量
 
 ```bash
-# SSDD数据集路径
-export SSDD_TRAIN_INSHORE_IMG="/path/to/SSDD/train_inshore/images"
-export SSDD_TRAIN_OFFSHORE_IMG="/path/to/SSDD/train_offshore/images"
-export SSDD_TEST_INSHORE_IMG="/path/to/SSDD/test_inshore/images"
-export SSDD_TEST_OFFSHORE_IMG="/path/to/SSDD/test_offshore/images"
-
-# RSDD-SAR数据集路径
-export RSDD_SAR_IMG="/path/to/RSDD-SAR/images"
-export RSDD_SAR_LABEL="/path/to/RSDD-SAR/labels"
-
 # 训练参数
 export TARGET_SIZE=640
 export BATCH_SIZE=8
@@ -434,7 +426,35 @@ export EDGE_PRUNING_RATIO="0.2"
 export EDGE_QUANTIZATION_BITS="8"
 ```
 
-### 7.2 训练配置
+### 7.2 数据集准备
+
+**数据集需人工准备**，放置在项目根目录下的 `dataset` 文件夹中：
+
+```
+dataset/
+├── train/
+│   ├── images/          # 训练图片 (.jpg/.png/.jpeg)
+│   └── labels/          # 训练标签 (.txt)
+├── val/
+│   ├── images/          # 验证图片
+│   └── labels/          # 验证标签
+└── test/
+    ├── images/          # 测试图片
+    └── labels/          # 测试标签
+```
+
+**标签格式：** YOLO OBB格式
+```
+class x_center y_center width height angle
+```
+- 角度单位：**度（degrees）**
+- 水平框角度设为 **0**
+
+**推荐数据集:**
+- **SSDD** (SAR Ship Detection Dataset) - 近岸/离岸SAR舰船检测数据集
+- **RSDD-SAR** (Remote Sensing Ship Detection Dataset) - 遥感SAR舰船检测数据集
+
+### 7.3 训练配置
 
 ```python
 # Config/config.py
@@ -541,7 +561,7 @@ recall               0.7890       0.8567       0.8456       +0.0566
 
 1. **显存要求**: 建议使用至少8GB显存的GPU
 2. **训练时间**: 完整训练约需数小时（取决于硬件）
-3. **数据准备**: 确保SSDD和RSDD-SAR数据集路径正确配置
+3. **数据准备**: 确保数据集已人工准备好，放置在 `dataset` 文件夹下
 4. **边缘优化**: 优化后模型更适合嵌入式部署
 5. **精度损失**: 边缘优化通常带来<3%的精度损失
 
@@ -593,15 +613,19 @@ python test/test_edge_standalone.py
 # 1. 安装依赖
 pip install ultralytics matplotlib
 
-# 2. 配置数据路径（可选）
-export SSDD_TRAIN_INSHORE_IMG="/path/to/SSDD/train_inshore/images"
-export RSDD_SAR_IMG="/path/to/RSDD-SAR/images"
+# 2. 准备数据集
+# 将数据集放置在项目根目录的 dataset/ 文件夹下
+# 结构：
+#   dataset/
+#   ├── train/images/ 和 train/labels/
+#   ├── val/images/ 和 val/labels/
+#   └── test/images/ 和 test/labels/
 
 # 3. 运行完整流程
 python main.py
 
 # 4. 查看结果
-ls D:/ShipDetection_improved/
+ls <PROJECT_ROOT>/output/
 ```
 
 ---

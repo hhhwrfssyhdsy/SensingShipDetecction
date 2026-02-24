@@ -13,13 +13,12 @@ class Config:
     PROJECT_ROOT = Path(__file__).parent.parent
     DATASET_ROOT = PROJECT_ROOT / "dataset"
 
-    # 训练/验证/测试集路径（统一格式）
-    TRAIN_IMG_DIR = DATASET_ROOT / "train" / "images"
-    TRAIN_LABEL_DIR = DATASET_ROOT / "train" / "labels"
-    VAL_IMG_DIR = DATASET_ROOT / "val" / "images"
-    VAL_LABEL_DIR = DATASET_ROOT / "val" / "labels"
-    TEST_IMG_DIR = DATASET_ROOT / "test" / "images"
-    TEST_LABEL_DIR = DATASET_ROOT / "test" / "labels"
+    TRAIN_IMG_DIR = DATASET_ROOT / "images" / "train"
+    TRAIN_LABEL_DIR = DATASET_ROOT / "labels" / "train"
+    VAL_IMG_DIR = DATASET_ROOT / "images" / "val"
+    VAL_LABEL_DIR = DATASET_ROOT / "labels" / "val"
+    TEST_IMG_DIR = DATASET_ROOT / "images" / "test"
+    TEST_LABEL_DIR = DATASET_ROOT / "labels" / "test"
 
     # ==================== 训练参数 ====================
     TARGET_SIZE = int(os.getenv("TARGET_SIZE", "640"))
@@ -28,7 +27,7 @@ class Config:
     DEVICE = os.getenv("DEVICE", "0")
 
     # 输出路径
-    OUTPUT_ROOT = Path(os.getenv("OUTPUT_ROOT", "D:/ShipDetection_improved"))
+    OUTPUT_ROOT = Path(os.getenv("OUTPUT_ROOT", str(PROJECT_ROOT / "output")))  
 
     # 模型配置
     BASELINE_EPOCHS = 130
@@ -94,3 +93,13 @@ class Config:
         "label_smoothing": 0.1,
         "dropout": 0.1,
     }
+
+    @classmethod
+    def validate_paths(cls) -> bool:
+        """
+        验证数据集路径是否存在
+
+        Returns:
+            如果数据集根目录存在返回True，否则返回False
+        """
+        return cls.DATASET_ROOT.exists()

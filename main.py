@@ -11,7 +11,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from Config.config import Config
-from Data.prepare_dataset import prepare_dataset
+from Data.prepare_dataset import validate_dataset
 from Data.dataset_analyzer import analyze_dataset
 from trainer import ShipDetectionTrainer
 from evaluation.evaluator import ModelEvaluator
@@ -67,24 +67,41 @@ def run_full_pipeline():
     if not check_environment():
         return
 
-    # 2. 分析数据集
-    analyze_dataset()
+    # 2. 验证数据集
+    dataset_result = validate_dataset()
+    if not dataset_result["valid"]:
+        print("\n❌ 数据集验证失败，请检查数据集结构")
+        return
 
-    # 3. 准备数据集
-    dataset_path = prepare_dataset()
+    # 3. 分析数据集
+    analyze_dataset()
 
     # 4. 创建训练器
     data_yaml = "./Config/ship_detection.yaml"
     trainer = ShipDetectionTrainer(data_yaml)
 
+    # 检查训练状态
+    baseline_trained, baseline_path = trainer.check_baseline_trained()
+    improved_trained, improved_path = trainer.check_improved_trained()
+
+    if baseline_trained and improved_trained:
+        print("\n" + "=" * 60)
+        print("📋 训练状态检查")
+        print("=" * 60)
+        print(f"   ✅ Baseline 模型已训练: {baseline_path}")
+        print(f"   ✅ 改进模型已训练完成: {improved_path}")
+        print(f"\n   检测到已训练的模型，将跳过训练阶段")
+        print("   如需重新训练，请删除输出目录中的模型文件")
+        print("=" * 60)
+
     # 5. 训练Baseline
-    print("Step 1: 训练 Baseline 模型")
+    print("\nStep 1: 训练 Baseline 模型")
     print("=" * 60)
-    baseline_model, _ = trainer.train_baseline()
+    baseline_model, _ = trainer.train_baseline(skip_if_trained=True)
 
     # 6. 训练改进模型（三阶段渐进训练）
-    print("Step 2: 训练改进模型 (三阶段渐进训练)")
-    improved_model, _ = trainer.train_progressive()
+    print("\nStep 2: 训练改进模型 (三阶段渐进训练)")
+    improved_model, _ = trainer.train_progressive(skip_if_trained=True)
 
     # 7. 对比评估
     print("Step 3: 模型对比评估")

@@ -1,5 +1,6 @@
 """
 数据集分析模块 - 简化版
+分析人工准备好的统一数据集结构
 """
 from pathlib import Path
 from typing import Dict, List
@@ -17,22 +18,27 @@ class DatasetAnalyzer:
             "total_labels": 0,
             "total_objects": 0,
             "classes": {},
-            "datasets": {}
+            "splits": {}
         }
 
     def analyze(self) -> Dict:
-        """分析所有数据集"""
+        """分析数据集"""
         print("\n" + "=" * 60)
         print("📊 分析数据集")
         print("=" * 60)
+        print(f"   数据集路径: {Config.DATASET_ROOT}")
 
-        # 分析SSDD
-        if Config.SSDD_TRAIN_INSHORE_IMG.exists():
-            self._analyze_dataset("SSDD_train", Config.SSDD_TRAIN_INSHORE_IMG, Config.SSDD_TRAIN_LABEL)
+        # 分析训练集
+        if Config.TRAIN_IMG_DIR.exists():
+            self._analyze_split("train", Config.TRAIN_IMG_DIR, Config.TRAIN_LABEL_DIR)
 
-        # 分析SeaShips
-        if Config.SEASHIP_IMG.exists():
-            self._analyze_dataset("SeaShips", Config.SEASHIP_IMG, Config.SEASHIP_LABEL)
+        # 分析验证集
+        if Config.VAL_IMG_DIR.exists():
+            self._analyze_split("val", Config.VAL_IMG_DIR, Config.VAL_LABEL_DIR)
+
+        # 分析测试集
+        if Config.TEST_IMG_DIR.exists():
+            self._analyze_split("test", Config.TEST_IMG_DIR, Config.TEST_LABEL_DIR)
 
         print(f"\n   总图片数: {self.stats['total_images']}")
         print(f"   总标签数: {self.stats['total_labels']}")
@@ -40,17 +46,28 @@ class DatasetAnalyzer:
 
         return self.stats
 
-    def _analyze_dataset(self, name: str, img_dir: Path, label_dir: Path):
-        """分析单个数据集"""
-        img_files = list(img_dir.glob("*.jpg"))
+    def _analyze_split(self, name: str, img_dir: Path, label_dir: Path):
+        """分析数据集划分（train/val/test）"""
+        if not img_dir.exists() or not label_dir.exists():
+            return
+
+        # 支持多种图片格式
+        img_files = []
+        for ext in ["*.jpg", "*.jpeg", "*.png"]:
+            img_files.extend(list(img_dir.glob(ext)))
+
         label_files = list(label_dir.glob("*.txt"))
 
+        # 统计目标数
         obj_count = 0
         for label_file in label_files:
-            with open(label_file, 'r') as f:
-                obj_count += len(f.readlines())
+            try:
+                with open(label_file, 'r') as f:
+                    obj_count += len(f.readlines())
+            except Exception:
+                pass
 
-        self.stats["datasets"][name] = {
+        self.stats["splits"][name] = {
             "images": len(img_files),
             "labels": len(label_files),
             "objects": obj_count
@@ -65,7 +82,7 @@ class DatasetAnalyzer:
     def save_report(self, output_path: Path = None):
         """保存分析报告"""
         if output_path is None:
-            output_path = Config.get_output_dir("reports") / "dataset_analysis.json"
+            output_path = Config.OUTPUT_ROOT / "reports" / "dataset_analysis.json"
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, 'w') as f:
