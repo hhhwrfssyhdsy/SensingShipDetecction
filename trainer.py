@@ -1,6 +1,5 @@
 """
-训练器模块 - 简化版
-支持Baseline训练和渐进式改进训练
+训练器模块
 """
 import json
 from pathlib import Path
@@ -30,7 +29,7 @@ class ShipDetectionTrainer:
         """
         baseline_dir = self.output_root / "baseline" / "baseline"
         best_model_path = baseline_dir / "weights" / "best.pt"
-        results_file = baseline_dir / "baseline_results.json"
+        results_file =  self.output_root / "baseline" / "baseline_results.json"
 
         if best_model_path.exists() and results_file.exists():
             # 检查results.json是否包含有效结果
@@ -65,6 +64,97 @@ class ShipDetectionTrainer:
             except:
                 pass
         return False, None
+
+    def visualize_results(self, baseline_metrics: Dict = None, improved_metrics: Dict = None):
+        """
+        可视化训练结果
+
+        Args:
+            baseline_metrics: Baseline模型评估指标（可选）
+            improved_metrics: 改进模型评估指标（可选）
+        """
+        try:
+            from evaluation.visualizer import ResultVisualizer, plot_training_curves, plot_stage_comparison
+            from evaluation.evaluator import ModelEvaluator
+
+            # 如果没有提供指标，尝试加载已保存的结果
+            results = {}
+
+            if baseline_metrics:
+                results["Baseline_YOLO11s"] = baseline_metrics
+            else:
+                # 尝试加载Baseline结果
+                baseline_results_file = self.output_root / "results" / "Baseline_YOLO11s_results.json"
+                if baseline_results_file.exists():
+                    with open(baseline_results_file, 'r') as f:
+                        results["Baseline_YOLO11s"] = json.load(f)
+
+            if improved_metrics:
+                results["Improved_MarineYOLO"] = improved_metrics
+            else:
+                # 尝试加载改进模型结果
+                improved_results_file = self.output_root / "results" / "Improved_MarineYOLO_results.json"
+                if improved_results_file.exists():
+                    with open(improved_results_file, 'r') as f:
+                        results["Improved_MarineYOLO"] = json.load(f)
+
+            if len(results) < 2:
+                print("   ⚠️  缺少评估结果，跳过可视化")
+                print("   请先运行模型评估")
+                return
+
+            # 创建可视化器
+            visualizer = ResultVisualizer(output_dir="training_visualization")
+
+            # 生成对比图表
+            visualizer.plot_comparison_bar(results)
+            visualizer.plot_radar(results)
+
+            # 绘制训练曲线（如果存在results.csv）
+            baseline_results_dir = self.output_root / "baseline" / "baseline"
+            if baseline_results_dir.exists():
+                plot_training_curves(baseline_results_dir, self.output_root / "training_visualization" / "baseline_training_curves.png")
+
+            improved_results_dir = self.output_root / "improved" / "stage3_refinement"
+            if improved_results_dir.exists():
+                plot_training_curves(improved_results_dir, self.output_root / "training_visualization" / "improved_training_curves.png")
+
+            # 绘制阶段对比图（如果有训练历史）
+            if self.training_history:
+                plot_stage_comparison(self.training_history, self.output_root / "training_visualization" / "stage_comparison.png")
+
+            # 如果有两个模型的结果，计算并显示改进幅度
+            if "Baseline_YOLO11s" in results and "Improved_MarineYOLO" in results:
+                comparison = {}
+                for key in ['mAP50', 'mAP50_95', 'precision', 'recall']:
+                    baseline_val = results["Baseline_YOLO11s"].get(key, 0)
+                    improved_val = results["Improved_MarineYOLO"].get(key, 0)
+
+                    comparison[key] = {
+                        'baseline': baseline_val,
+                        'improved': improved_val,
+                        'absolute_improvement': improved_val - baseline_val,
+                        'relative_improvement_percent': (
+                            (improved_val - baseline_val) / baseline_val * 100
+                            if baseline_val > 0 else 0
+                        )
+                    }
+
+                visualizer.plot_improvement(comparison)
+
+                # 打印改进幅度
+                print("\n   📈 改进幅度:")
+                for key in ['mAP50', 'mAP50_95', 'precision', 'recall']:
+                    if key in comparison:
+                        improvement = comparison[key]['relative_improvement_percent']
+                        print(f"      {key}: {improvement:+.2f}%")
+
+
+        except ImportError as e:
+            print(f"   ⚠️  缺少可视化依赖: {e}")
+            print("   请安装: pip install matplotlib numpy")
+        except Exception as e:
+            print(f"   ⚠️  可视化生成失败: {e}")
 
     def check_stage_trained(self, stage_num: int) -> Tuple[bool, Optional[Path]]:
         """
@@ -162,7 +252,7 @@ class ShipDetectionTrainer:
                 model = YOLO(str(model_path))
 
                 # 读取已保存的结果
-                results_file = self.output_root / "baseline" / "baseline" / "baseline_results.json"
+                results_file = self.output_root / "baseline" / "baseline_results.json"
                 with open(results_file, 'r') as f:
                     saved_results = json.load(f)
 
@@ -616,6 +706,9 @@ def train_all(skip_trained: bool = True):
             if export_results:
                 print("   ✅ 模型导出完成，可用于边缘设备部署")
 
+        # 生成可视化报告（即使跳过训练也生成）
+        trainer.visualize_results()
+
         return baseline_model, improved_model
 
     # 训练Baseline（如果未训练或skip_trained=False）
@@ -631,6 +724,9 @@ def train_all(skip_trained: bool = True):
         if export_results:
             print("   ✅ 模型导出完成，可用于边缘设备部署")
 
+    # 生成可视化报告
+    trainer.visualize_results()
+
     return baseline_model, improved_model
 
 
@@ -638,6 +734,90 @@ def export_for_edge():
     """仅导出模型用于边缘部署"""
     trainer = ShipDetectionTrainer()
     return trainer.export_for_edge_deployment()
+
+
+def visualize_training_results(baseline_metrics: Dict, improved_metrics: Dict, comparison: Dict = None):
+    """
+    可视化训练结果
+
+    Args:
+        baseline_metrics: Baseline模型评估指标
+        improved_metrics: 改进模型评估指标
+        comparison: 对比结果（可选）
+    """
+    try:
+        from evaluation.visualizer import ResultVisualizer
+
+        print("\n" + "=" * 60)
+        print("📊 生成可视化图表")
+        print("=" * 60)
+
+        visualizer = ResultVisualizer()
+
+        results = {
+            "Baseline_YOLO11s": baseline_metrics,
+            "Improved_MarineYOLO": improved_metrics
+        }
+
+        visualizer.generate_report(results, comparison)
+
+        print("   ✅ 可视化图表生成完成")
+        print(f"   保存位置: {Config.OUTPUT_ROOT / 'visualization'}")
+        print("=" * 60)
+
+    except Exception as e:
+        print(f"   ⚠️  可视化生成失败: {e}")
+        print("   请检查是否安装了 matplotlib 和 numpy")
+
+
+def train_and_visualize(skip_trained: bool = True) -> Tuple[YOLO, YOLO]:
+    """
+    训练所有模型并生成可视化报告
+
+    Args:
+        skip_trained: 是否跳过已训练的模型
+
+    Returns:
+        (baseline_model, improved_model)
+    """
+    from evaluation.evaluator import ModelEvaluator
+
+    # 训练模型
+    baseline_model, improved_model = train_all(skip_trained=skip_trained)
+
+    # 评估模型
+    print("\n" + "=" * 60)
+    print("📊 评估模型性能")
+    print("=" * 60)
+
+    data_path = "./Config/ship_detection.yaml"
+
+    # 评估Baseline
+    baseline_evaluator = ModelEvaluator(baseline_model, "Baseline_YOLO11s")
+    baseline_metrics = baseline_evaluator.evaluate(data_path, save_results=True)
+
+    # 评估改进模型
+    improved_evaluator = ModelEvaluator(improved_model, "Improved_MarineYOLO")
+    improved_metrics = improved_evaluator.evaluate(data_path, save_results=True)
+
+    # 对比
+    comparison = improved_evaluator.compare_with_baseline(baseline_model, data_path)
+
+    # 打印对比结果
+    print("\n📊 精度指标对比:")
+    print(f"   {'Metric':<20} {'Baseline':<12} {'Improved':<12} {'Improvement':<12}")
+    print("   " + "-" * 60)
+    for key in ['mAP50', 'mAP50_95', 'precision', 'recall']:
+        if key in comparison:
+            baseline_val = comparison[key]['baseline']
+            improved_val = comparison[key]['improved']
+            improvement = comparison[key]['relative_improvement_percent']
+            print(f"   {key:<20} {baseline_val:<12.4f} {improved_val:<12.4f} {improvement:+.2f}%")
+
+    # 生成可视化
+    visualize_training_results(baseline_metrics, improved_metrics, comparison)
+
+    return baseline_model, improved_model
 
 
 if __name__ == "__main__":

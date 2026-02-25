@@ -4,7 +4,7 @@
 import torch
 import torch.nn as nn
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 from ultralytics import YOLO
 
 from .attention_modules import SEAttention, CBAM, MarineContextAttention

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "albumentations>=2.0.8",
+    "onnxscript>=0.6.2",
     "seaborn>=0.13.2",
     "torch>=2.8.0",
     "torchaudio>=2.8.0",

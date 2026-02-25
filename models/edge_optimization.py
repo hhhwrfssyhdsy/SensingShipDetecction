@@ -389,32 +389,81 @@ class EdgeOptimizer:
         """
         print(f"\n📤 导出ONNX模型: {output_path}")
 
-        self.model.eval()
-        dummy_input = torch.randn(input_shape)
+        try:
+            self.model.eval()
+            dummy_input = torch.randn(input_shape)
 
-        torch.onnx.export(
-            self.model,
-            dummy_input,
-            output_path,
-            export_params=True,
-            opset_version=opset_version,
-            do_constant_folding=True,
-            input_names=['input'],
-            output_names=['output'],
-            dynamic_axes={
-                'input': {0: 'batch_size'},
-                'output': {0: 'batch_size'}
-            }
-        )
+            # 使用Ultralytics内置的导出功能（更稳定）
+            print("   使用Ultralytics导出功能...")
 
-        # 验证导出成功
-        if Path(output_path).exists():
-            size_mb = Path(output_path).stat().st_size / (1024 * 1024)
-            print(f"   ✅ ONNX导出完成: {size_mb:.2f} MB")
-        else:
-            print(f"   ❌ ONNX导出失败")
+            # 临时保存模型
+            temp_pt_path = str(Path(output_path).with_suffix('.temp.pt'))
+            torch.save(self.model.state_dict(), temp_pt_path)
 
-        return output_path
+            # 使用Ultralytics YOLO导出
+            from ultralytics import YOLO
+            temp_model = YOLO(temp_pt_path)
+
+            # 导出ONNX
+            temp_model.export(format='onnx', imgsz=input_shape[-2:])
+
+            # 移动导出的文件到目标位置
+            exported_onnx = Path(temp_pt_path).with_suffix('.onnx')
+            if exported_onnx.exists():
+                exported_onnx.rename(output_path)
+
+            # 清理临时文件
+            Path(temp_pt_path).unlink(missing_ok=True)
+
+            # 验证导出成功
+            if Path(output_path).exists():
+                size_mb = Path(output_path).stat().st_size / (1024 * 1024)
+                print(f"   ✅ ONNX导出完成: {size_mb:.2f} MB")
+            else:
+                print(f"   ❌ ONNX导出失败")
+
+            return output_path
+
+        except Exception as e:
+            print(f"   ⚠️  Ultralytics导出失败，尝试标准ONNX导出: {e}")
+
+            try:
+                # 使用标准torch.onnx.export（旧版方式）
+                self.model.eval()
+                dummy_input = torch.randn(input_shape)
+
+                # 禁用dynamo导出（使用旧版导出器）
+                import torch.onnx
+                torch.onnx.export(
+                    self.model,
+                    dummy_input,
+                    output_path,
+                    export_params=True,
+                    opset_version=17,  # 使用较新的opset版本
+                    do_constant_folding=True,
+                    input_names=['input'],
+                    output_names=['output'],
+                    dynamic_axes={
+                        'input': {0: 'batch_size', 2: 'height', 3: 'width'},
+                        'output': {0: 'batch_size'}
+                    },
+                    dynamo=False  # 禁用dynamo导出
+                )
+
+                # 验证导出成功
+                if Path(output_path).exists():
+                    size_mb = Path(output_path).stat().st_size / (1024 * 1024)
+                    print(f"   ✅ ONNX导出完成: {size_mb:.2f} MB")
+                else:
+                    print(f"   ❌ ONNX导出失败")
+
+                return output_path
+
+            except Exception as e2:
+                print(f"   ❌ 标准ONNX导出也失败: {e2}")
+                print(f"   提示: 可以尝试使用YOLO命令行导出:")
+                print(f"   yolo export model={model_path} format=onnx")
+                return None
 
     def export_to_torchscript(
         self,
@@ -471,17 +520,12 @@ def optimize_and_export_model(
     """
     from ultralytics import YOLO
 
+    print(f"\n{'='*60}")
+    print(f"📦 导出模型: {model_name}")
+    print(f"{'='*60}")
+
     # 加载模型
     model = YOLO(model_path)
-
-    # 创建优化器
-    optimizer = EdgeOptimizer(model.model)
-
-    # 执行优化
-    optimized_model = optimizer.optimize_for_edge(
-        use_lightweight_blocks=use_lightweight,
-        pruning_ratio=pruning_ratio
-    )
 
     # 创建输出目录
     output_path = Path(output_dir)
@@ -489,16 +533,64 @@ def optimize_and_export_model(
 
     exported_files = {}
 
-    # 导出ONNX
-    onnx_path = output_path / f"{model_name}.onnx"
-    optimizer.export_to_onnx(str(onnx_path))
-    exported_files['onnx'] = str(onnx_path)
+    # 使用Ultralytics原生导出功能（最稳定）
+    print(f"\n   导出ONNX格式...")
+    try:
+        # 导出ONNX
+        model.export(format='onnx', imgsz=640, half=False, simplify=True)
+
+        # 移动导出的文件到目标位置
+        default_onnx = Path(model_path).with_suffix('.onnx')
+        target_onnx = output_path / f"{model_name}.onnx"
+
+        if default_onnx.exists():
+            default_onnx.rename(target_onnx)
+            exported_files['onnx'] = str(target_onnx)
+            size_mb = target_onnx.stat().st_size / (1024 * 1024)
+            print(f"   ✅ ONNX导出完成: {size_mb:.2f} MB")
+        else:
+            print(f"   ⚠️  ONNX导出失败: 未找到导出文件")
+
+    except Exception as e:
+        print(f"   ⚠️  ONNX导出失败: {e}")
 
     # 导出TorchScript
-    torchscript_path = output_path / f"{model_name}.torchscript"
-    optimizer.export_to_torchscript(str(torchscript_path))
-    exported_files['torchscript'] = str(torchscript_path)
+    print(f"\n   导出TorchScript格式...")
+    try:
+        model.export(format='torchscript', imgsz=640)
 
+        default_torchscript = Path(model_path).with_suffix('.torchscript')
+        target_torchscript = output_path / f"{model_name}.torchscript"
+
+        if default_torchscript.exists():
+            default_torchscript.rename(target_torchscript)
+            exported_files['torchscript'] = str(target_torchscript)
+            size_mb = target_torchscript.stat().st_size / (1024 * 1024)
+            print(f"   ✅ TorchScript导出完成: {size_mb:.2f} MB")
+        else:
+            print(f"   ⚠️  TorchScript导出失败: 未找到导出文件")
+
+    except Exception as e:
+        print(f"   ⚠️  TorchScript导出失败: {e}")
+
+    # 复制原始模型
+    print(f"\n   复制PyTorch模型...")
+    try:
+        import shutil
+        pt_path = output_path / f"{model_name}.pt"
+        shutil.copy(model_path, pt_path)
+        exported_files['pytorch'] = str(pt_path)
+        size_mb = pt_path.stat().st_size / (1024 * 1024)
+        print(f"   ✅ PyTorch模型已复制: {size_mb:.2f} MB")
+    except Exception as e:
+        print(f"   ⚠️  PyTorch模型复制失败: {e}")
+
+    print(f"\n{'='*60}")
+    print(f"✅ 模型导出完成: {model_name}")
+    print(f"   导出文件:")
+    for fmt, path in exported_files.items():
+        print(f"      {fmt}: {path}")
+    print(f"{'='*60}")
 
     return exported_files
 

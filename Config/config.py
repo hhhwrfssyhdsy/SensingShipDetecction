@@ -103,3 +103,20 @@ class Config:
             如果数据集根目录存在返回True，否则返回False
         """
         return cls.DATASET_ROOT.exists()
+
+    @classmethod
+    def get_output_dir(cls, sub_dir: str = None) -> Path:
+        """
+        获取输出目录路径
+
+        Args:
+            sub_dir: 子目录名称（可选）
+
+        Returns:
+            输出目录路径
+        """
+        output_dir = cls.OUTPUT_ROOT
+        if sub_dir:
+            output_dir = output_dir / sub_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return output_dir

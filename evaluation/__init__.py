@@ -4,7 +4,7 @@
 """
 from .evaluator import ModelEvaluator, compare_models
 from .metrics import calculate_iou, calculate_map
-from .visualizer import ResultVisualizer
+from .visualizer import ResultVisualizer, plot_training_curves, plot_stage_comparison
 
 __all__ = [
     "ModelEvaluator",
@@ -12,4 +12,6 @@ __all__ = [
     "calculate_iou",
     "calculate_map",
     "ResultVisualizer",
+    "plot_training_curves",
+    "plot_stage_comparison",
 ]

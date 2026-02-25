@@ -23,9 +23,12 @@ from Config.config import Config
 
 
 def xywha_to_xyxyxyxy(class_id: int, x_center: float, y_center: float,
-                       width: float, height: float, angle_deg: float) -> Tuple:
+                       width: float, height: float, angle_rad: float) -> Tuple:
     """
     将 (x_center, y_center, width, height, angle) 转换为四个角点 (x1,y1,x2,y2,x3,y3,x4,y4)
+    
+    注意: Ultralytics YOLO OBB 格式使用弧度(radians)作为角度单位
+    参考: https://docs.ultralytics.com/tasks/obb/
 
     Args:
         class_id: 类别ID
@@ -33,13 +36,12 @@ def xywha_to_xyxyxyxy(class_id: int, x_center: float, y_center: float,
         y_center: 中心点 y (归一化 0-1)
         width: 宽度 (归一化 0-1)
         height: 高度 (归一化 0-1)
-        angle_deg: 旋转角度（度）
+        angle_rad: 旋转角度（弧度 radians）
 
     Returns:
         (class_id, x1, y1, x2, y2, x3, y3, x4, y4)
     """
-    # 角度转弧度
-    angle_rad = math.radians(angle_deg)
+    # Ultralytics OBB 使用弧度，直接使用
 
     # 半宽半高
     w2 = width / 2
@@ -71,12 +73,15 @@ def xywha_to_xyxyxyxy(class_id: int, x_center: float, y_center: float,
     return (class_id, *rotated_corners)
 
 
-def convert_label_line(line: str) -> str:
+def convert_label_line(line: str, angle_in_radians: bool = True) -> str:
     """
     转换单行标签格式
+    
+    注意: Ultralytics YOLO OBB 格式使用弧度(radians)作为角度单位
 
     Args:
         line: 输入标签行
+        angle_in_radians: 输入角度是否为弧度（默认True，符合Ultralytics标准）
 
     Returns:
         转换后的标签行（Ultralytics OBB格式）
@@ -91,20 +96,24 @@ def convert_label_line(line: str) -> str:
         width = float(parts[3])
         height = float(parts[4])
         angle = float(parts[5])
+        
+        # 如果输入是度，转换为弧度（Ultralytics使用弧度）
+        if not angle_in_radians:
+            angle = math.radians(angle)
 
-        # 转换为 OBB 格式
+        # 转换为 OBB 格式（使用弧度）
         converted = xywha_to_xyxyxyxy(class_id, x_center, y_center, width, height, angle)
         return f"{converted[0]} {converted[1]:.6f} {converted[2]:.6f} {converted[3]:.6f} {converted[4]:.6f} {converted[5]:.6f} {converted[6]:.6f} {converted[7]:.6f} {converted[8]:.6f}"
 
     elif len(parts) == 5:
-        # 5列格式：class x_center y_center width height（水平框，角度为0）
+        # 5列格式：class x_center y_center width height（水平框，角度为0弧度）
         class_id = int(parts[0])
         x_center = float(parts[1])
         y_center = float(parts[2])
         width = float(parts[3])
         height = float(parts[4])
 
-        # 转换为 OBB 格式（角度为0）
+        # 转换为 OBB 格式（角度为0弧度）
         converted = xywha_to_xyxyxyxy(class_id, x_center, y_center, width, height, 0.0)
         return f"{converted[0]} {converted[1]:.6f} {converted[2]:.6f} {converted[3]:.6f} {converted[4]:.6f} {converted[5]:.6f} {converted[6]:.6f} {converted[7]:.6f} {converted[8]:.6f}"
 
@@ -117,13 +126,16 @@ def convert_label_line(line: str) -> str:
         return ""
 
 
-def convert_label_file(input_path: Path, output_path: Path = None) -> bool:
+def convert_label_file(input_path: Path, output_path: Path = None, angle_in_radians: bool = True) -> bool:
     """
     转换单个标签文件
+    
+    注意: Ultralytics YOLO OBB 格式使用弧度(radians)作为角度单位
 
     Args:
         input_path: 输入标签文件路径
         output_path: 输出标签文件路径（默认为输入路径，即覆盖原文件）
+        angle_in_radians: 输入角度是否为弧度（默认True，符合Ultralytics标准）
 
     Returns:
         是否成功转换
@@ -137,7 +149,7 @@ def convert_label_file(input_path: Path, output_path: Path = None) -> bool:
 
         converted_lines = []
         for line in lines:
-            converted = convert_label_line(line)
+            converted = convert_label_line(line, angle_in_radians=angle_in_radians)
             if converted:
                 converted_lines.append(converted)
 
@@ -155,16 +167,24 @@ def convert_label_file(input_path: Path, output_path: Path = None) -> bool:
 
 
 class DatasetPreparer:
-    """数据集验证器 - 验证人工准备好的数据集"""
+    """
+    数据集验证器 - 验证人工准备好的数据集
+    
+    注意: Ultralytics YOLO OBB 格式使用弧度(radians)作为角度单位
+    参考: https://docs.ultralytics.com/tasks/obb/
+    """
 
-    def __init__(self, dataset_root: Path = None):
+    def __init__(self, dataset_root: Path = None, angle_in_radians: bool = True):
         """
         初始化数据集验证器
 
         Args:
             dataset_root: 数据集根目录，默认为项目目录下的dataset文件夹
+            angle_in_radians: 数据集标签中的角度是否为弧度（默认True，符合Ultralytics标准）
         """
         self.dataset_root = dataset_root or Config.DATASET_ROOT
+        self.angle_in_radians = angle_in_radians
+        
         # 新结构：images/ 和 labels/ 目录下有 train/val/test 子目录
         self.train_img_dir = self.dataset_root / "images" / "train"
         self.train_label_dir = self.dataset_root / "labels" / "train"
@@ -270,6 +290,8 @@ class DatasetPreparer:
     def convert_labels(self) -> Dict[str, int]:
         """
         转换所有标签为 Ultralytics OBB 格式
+        
+        注意: Ultralytics YOLO OBB 格式使用弧度(radians)作为角度单位
 
         Returns:
             转换统计信息
@@ -277,6 +299,10 @@ class DatasetPreparer:
         print("\n" + "=" * 60)
         print("🔄 转换标签格式为 Ultralytics OBB 格式")
         print("=" * 60)
+        
+        angle_unit = "弧度(radians)" if self.angle_in_radians else "度(degrees)"
+        print(f"   输入角度单位: {angle_unit}")
+        print(f"   输出格式: Ultralytics OBB (class x1 y1 x2 y2 x3 y3 x4 y4)")
 
         stats = {"train": 0, "val": 0, "test": 0}
 
@@ -326,8 +352,8 @@ class DatasetPreparer:
                     if not backup_path.exists():
                         label_file.rename(backup_path)
 
-                    # 转换
-                    if convert_label_file(backup_path, label_file):
+                    # 转换（传入角度单位参数）
+                    if convert_label_file(backup_path, label_file, angle_in_radians=self.angle_in_radians):
                         converted_count += 1
                 else:
                     converted_count += 1  #  already in correct format
@@ -442,9 +468,14 @@ class DatasetPreparer:
         return stats
 
 
-def validate_dataset():
-    """验证数据集的便捷函数"""
-    preparer = DatasetPreparer()
+def validate_dataset(angle_in_radians: bool = True):
+    """
+    验证数据集的便捷函数
+    
+    Args:
+        angle_in_radians: 数据集标签中的角度是否为弧度（默认True，符合Ultralytics标准）
+    """
+    preparer = DatasetPreparer(angle_in_radians=angle_in_radians)
 
     # 验证数据集结构
     result = preparer.validate_dataset()
