@@ -174,7 +174,7 @@ EDGE_TARGET_PLATFORMS = ["cpu", "gpu", "jetson", "raspberry_pi", "openvino"]
 ├── results/
 │   ├── Baseline_YOLO11s_results.json
 │   ├── Improved_MarineYOLO_results.json
-│   ├── EdgeOptimized_YOLO_results.json  # ⭐
+│   ├── EdgeOptimized_YOLO_results.json  
 │   └── comparison_report.json
 ├── visualization/
 │   ├── comparison_metrics.png       # 指标对比柱状图
@@ -234,7 +234,7 @@ EDGE_TRAINING_CONFIG = {
 ```
 class x_center y_center width height angle
 ```
-- 角度单位：**度（degrees）**
+- 角度单位：**度（rad）**
 - 水平框角度设为 **0**
 
 **推荐数据集:**
