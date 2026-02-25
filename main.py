@@ -1,98 +1,158 @@
-from Data.dataset import create_dataloaders
-from Models.trainer import (
-    train_yolov11s_ship_detection, 
-    train_marine_small_object_detection,
-    train_progressive_ship_detection,
-    train_three_stage_progressive,
-    train_synergistic_approach  # 新增协同训练
-)
-from Config.DataReading import *
-from Data.small_object_dataset import MarineSmallObjectDataset
+import sys
+from pathlib import Path
 
-def analyze_dataset_for_progressive():
-    """
-    为渐进式训练分析数据集
-    """
-    print("🔍 分析数据集以确定渐进式训练策略...")
-    
-    analysis_dataset = MarineSmallObjectDataset(
-        img_paths=[SSDD_train_inshore_img_path, SSDD_train_offshore_img_path, S_img_path],
-        label_paths=[SSDD_train_label_path, SSDD_train_label_path, S_label_path],
-        use_marine_mosaic=False
+# 添加项目路径
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+
+from Config.config import Config
+from Data.prepare_dataset import validate_dataset
+from Data.dataset_analyzer import analyze_dataset
+from trainer import ShipDetectionTrainer
+from evaluation.evaluator import ModelEvaluator
+from evaluation.visualizer import ResultVisualizer
+from models.edge_optimization import EdgeOptimizer
+from ultralytics import YOLO
+
+
+def check_environment():
+    """检查环境配置"""
+    print("\n" + "=" * 60)
+    print("🔍 环境检查")
+    print("=" * 60)
+
+    # 检查路径
+    if not Config.validate_paths():
+        print("\n⚠️  请配置正确的数据集路径")
+        print("   可以通过环境变量或修改 Config/config.py 设置")
+        return False
+
+    # 检查边缘优化配置
+    print("\n   边缘优化配置:")
+    edge_config = Config.EDGE_OPTIMIZATION
+    print(f"      启用状态: {edge_config['enabled']}")
+    print(f"      轻量化模块: {edge_config['use_lightweight_blocks']}")
+    print(f"      模型剪枝: {edge_config['use_pruning']} (比例: {edge_config['pruning_ratio']})")
+    print(f"      量化: {edge_config['use_quantization']} ({edge_config['quantization_bits']}bit)")
+
+    print("\n✅ 环境检查通过")
+    return True
+
+
+def run_full_pipeline():
+
+    # 检查环境
+    if not check_environment():
+        return
+
+    # 验证数据集
+    dataset_result = validate_dataset()
+    if not dataset_result["valid"]:
+        print("\n❌ 数据集验证失败，请检查数据集结构")
+        return
+
+    # 分析数据集
+    analyze_dataset()
+
+    # 创建训练器
+    data_yaml = "./Config/ship_detection.yaml"
+    trainer = ShipDetectionTrainer(data_yaml)
+
+    # 检查训练状态
+    baseline_trained, baseline_path = trainer.check_baseline_trained()
+    improved_trained, improved_path = trainer.check_improved_trained()
+
+    if baseline_trained and improved_trained:
+        print("\n" + "=" * 60)
+        print("📋 训练状态检查")
+        print("=" * 60)
+        print(f"   ✅ Baseline 模型已训练: {baseline_path}")
+        print(f"   ✅ 改进模型已训练完成: {improved_path}")
+        print(f"\n   检测到已训练的模型，将跳过训练阶段")
+        print("   如需重新训练，请删除输出目录中的模型文件")
+        print("=" * 60)
+
+    # 训练Baseline
+    print("\nStep 1: 训练 Baseline 模型")
+    print("=" * 60)
+    baseline_model, _ = trainer.train_baseline(skip_if_trained=True)
+
+    # 训练改进模型（三阶段渐进训练）
+    print("\nStep 2: 训练改进模型 (三阶段渐进训练)")
+    improved_model, _ = trainer.train_progressive(skip_if_trained=True)
+
+    # 对比评估
+    print("Step 3: 模型对比评估")
+
+    # 评估Baseline
+    baseline_evaluator = ModelEvaluator(baseline_model, "Baseline_YOLO11s")
+    baseline_metrics = baseline_evaluator.evaluate(data_yaml)
+
+    # 评估改进模型
+    improved_evaluator = ModelEvaluator(improved_model, "Improved_MarineYOLO")
+    improved_metrics = improved_evaluator.evaluate(data_yaml)
+
+    # 对比
+    comparison = improved_evaluator.compare_with_baseline(baseline_model, data_yaml)
+
+    # 导出边缘部署模型
+    print("\n" + "=" * 60)
+    print("Step 4: 导出边缘部署模型")
+
+    # 获取模型路径
+    baseline_model_path = str(Config.OUTPUT_ROOT / "baseline" / "baseline" / "weights" / "best.pt")
+    improved_model_path = str(Config.OUTPUT_ROOT / "improved" / "stage3_refinement" / "weights" / "best.pt")
+
+    # 导出模型
+    export_results = trainer.export_for_edge_deployment(
+        baseline_model_path=baseline_model_path,
+        improved_model_path=improved_model_path
     )
-    
-    stats = analysis_dataset.analyze_marine_small_objects()
-    
-    # 确定渐进式策略
-    small_ratio = stats['small'] / stats['total']
-    
-    if small_ratio > 0.5:
-        strategy = 'three_stage'  # 高小目标比例用三阶段
-        print("🎯 检测到高小目标比例，推荐三阶段渐进训练")
-    elif small_ratio > 0.25:
-        strategy = 'two_stage'    # 中等小目标比例用两阶段
-        print("🎯 检测到中等小目标比例，推荐两阶段渐进训练")
-    else:
-        strategy = 'standard'     # 低小目标比例用标准训练
-        print("🎯 小目标比例正常，推荐标准训练")
-    
-    return {
-        'strategy': strategy,
-        'small_ratio': small_ratio,
-        'stats': stats
+
+    # 可视化
+    print("Step 5: 生成可视化图表")
+
+    # 使用trainer的可视化方法（包含训练曲线和阶段对比）
+    trainer.visualize_results(baseline_metrics, improved_metrics)
+
+    # 同时生成标准对比报告
+    visualizer = ResultVisualizer()
+
+    results = {
+        "Baseline_YOLO11s": baseline_metrics,
+        "Improved_MarineYOLO": improved_metrics
     }
 
+    visualizer.generate_report(results, comparison)
+
+    # 打印最终对比结果
+    print("最终对比结果")
+
+    print("\n精度指标对比:")
+    print(f"{'指标':<20} {'Baseline':<15} {'Improved':<15} {'提升':<15}")
+    print("-" * 65)
+
+    for metric in ['mAP50', 'mAP50_95', 'precision', 'recall']:
+        baseline_val = baseline_metrics.get(metric, 0)
+        improved_val = improved_metrics.get(metric, 0)
+        abs_imp = improved_val - baseline_val
+        rel_imp = (abs_imp / baseline_val * 100) if baseline_val > 0 else 0
+
+        print(f"{metric:<20} {baseline_val:<15.4f} {improved_val:<15.4f} "
+              f"{abs_imp:+.4f} ({rel_imp:+.2f}%)")
+
+
 def main():
-    """
-    主训练流程 - 协同优化版
-    """
-    print("🚢 开始船舶目标检测训练流程（协同优化版）...")
-    
-    # 步骤0: 分析数据集确定策略
-    analysis = analyze_dataset_for_progressive()
-    
-    # 步骤1: 创建数据加载器
-    print("📊 创建数据加载器...")
-    train_loader, val_loader = create_dataloaders(
-        batch_size=BATCH_SIZE,
-        num_workers=NUM_WORKERS,
-        target_size=TARGET_SIZE
-    )
-    
-    print(f"训练集批次: {len(train_loader)}")
-    print(f"验证集批次: {len(val_loader)}")
-    
-    # 步骤2: 根据分析选择训练策略
-    if analysis['small_ratio'] > 0.4:
-        print("🚀 检测到高小目标比例，启动协同优化训练...")
-        print("📋 训练策略: 数据增强 + 模型结构 + 注意力机制 三重优化")
-        model, results = train_synergistic_approach()
-    elif analysis['strategy'] == 'three_stage':
-        print("🔄 开始三阶段渐进式训练...")
-        model, results = train_three_stage_progressive()
-    elif analysis['strategy'] == 'two_stage':
-        print("🔄 开始两阶段渐进式训练...")
-        model, results = train_progressive_ship_detection()
-    else:
-        print("🎯 开始标准YOLOv11-s模型训练...")
-        model, results = train_yolov11s_ship_detection()
-    
-    print("✅ 训练完成！")
-    
-    # 步骤3: 显示训练结果总结
-    print("\n📊 训练结果总结:")
-    print(f"📁 最终模型保存在: runs/detect/train/weights/best.pt")
-    
-    if analysis['strategy'] != 'standard':
-        print("🔗 提示: 可以使用 ensemble_inference.py 进行模型集成推理")
-        print("🔍 提示: 可以使用 evaluator.py 进行详细性能评估")
-    
-    # 显示数据集分析结果
-    print(f"\n📈 数据集分析结果:")
-    print(f"   小目标比例: {analysis['small_ratio']:.2%}")
-    print(f"   中目标比例: {analysis['stats']['medium']/analysis['stats']['total']:.2%}")
-    print(f"   大目标比例: {analysis['stats']['large']/analysis['stats']['total']:.2%}")
-    print(f"   海洋检测难度: {analysis['stats']['marine_difficulty']:.2f}")
+    """主函数"""
+    try:
+        run_full_pipeline()
+    except KeyboardInterrupt:
+        print("\n\n⚠️  用户中断")
+    except Exception as e:
+        print(f"\n\n❌ 错误: {e}")
+        import traceback
+        traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()

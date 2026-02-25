@@ -1,6 +1,26 @@
+# 海洋舰船检测数据集配置
+# 统一数据集路径：项目目录下的dataset文件夹
+# 结构：
+#   dataset/
+#   ├── images/
+#   │   ├── train/
+#   │   ├── val/
+#   │   └── test/
+#   └── labels/
+#       ├── train/
+#       ├── val/
+#       └── test/
+
+train: ../dataset/images/train
+val: ../dataset/images/val
+test: ../dataset/images/test
+
+# 类别
 names:
-- ship
+  0: ship
+
+# 类别数
 nc: 1
-path: /root/ShipDetection_improved
-train: images/train
-val: images/val
+
+# 旋转框检测
+task: obb

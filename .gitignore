@@ -3,3 +3,4 @@ runs/
 *.pt
 images/
 labels/
+__pycache__/
