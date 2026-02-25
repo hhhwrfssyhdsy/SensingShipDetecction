@@ -56,16 +56,15 @@ uv sync
 
 在项目根目录下，将数据集放在 `dataset` 文件夹下。
 ```
-#   dataset/
-#   ├── train/
-#   │   ├── images/
-#   │   └── labels/
-#   ├── val/
-#   │   ├── images/
-#   │   └── labels/
-#   └── test/
-#       ├── images/
-#       └── labels/
+dataset/
+├── images/
+│   ├── train/
+│   ├── val/
+│   └── test/
+└── labels/
+    ├── train/
+    ├── val/
+    └── test/
 ```
 
 ### 3. 运行完整流程
@@ -241,6 +240,8 @@ class x_center y_center width height angle
 **推荐数据集:**
 - **SSDD** (SAR Ship Detection Dataset) - 近岸/离岸SAR舰船检测数据集
 - **RSDD-SAR** (Remote Sensing Ship Detection Dataset) - 遥感SAR舰船检测数据集
+[整合数据集](https://www.kaggle.com/datasets/kirakiramika/ship-detection-dataset)
+
 
 ## 注意力机制
 
