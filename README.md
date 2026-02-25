@@ -1,4 +1,4 @@
-# YOLO11 海洋舰船检测 - 边缘设备优化版
+# YOLO11 海洋舰船检测
 
 针对海洋舰船目标检测任务，对YOLO11进行算法改进和边缘设备优化，建立完整的训练、优化和部署流程。
 
@@ -28,12 +28,12 @@ SensingShipDetecction/
 │   ├── attention_modules.py   # 注意力机制
 │   ├── custom_yolo.py         # 自定义YOLO
 │   ├── enhanced_neck.py       # 增强Neck
-│   └── edge_optimization.py   # 边缘优化模块 ⭐新增
+│   └── edge_optimization.py   # 边缘优化模块 
 ├── test/                      # 单元测试
 │   ├── test_edge_standalone.py # 边缘优化测试
 │   └── ...
-├── main.py                    # 主程序入口（边缘优化版）
-├── trainer.py                 # 训练器（含边缘训练）
+├── main.py                    # 主程序入口
+├── trainer.py                 # 训练器
 ├── run_comparison.py          # 对比脚本
 └── TECHNICAL_DOCUMENT.md      # 技术文档
 ```
@@ -42,9 +42,15 @@ SensingShipDetecction/
 
 ### 1. 安装依赖
 
-```bash
-pip install ultralytics matplotlib
+使用pip:
+```bash 
+pip install -r requirements.txt
 ```
+使用uv:
+```bash
+uv sync
+```
+
 
 ### 2. 配置数据路径
 
@@ -69,7 +75,7 @@ python main.py
 ```
 
 自动执行:
-1. 环境检查（含边缘优化配置）
+1. 环境检查
 2. 数据集分析
 3. 数据准备
 4. Baseline训练 (130轮)
@@ -224,23 +230,7 @@ EDGE_TRAINING_CONFIG = {
 }
 ```
 
-### 数据集配置
-
-**数据集需人工准备**，放置在项目根目录下的 `dataset` 文件夹中：
-
-```
-dataset/
-├── train/
-│   ├── images/          # 训练图片 (.jpg/.png)
-│   └── labels/          # 训练标签 (.txt)
-├── val/
-│   ├── images/          # 验证图片
-│   └── labels/          # 验证标签
-└── test/
-    ├── images/          # 测试图片
-    └── labels/          # 测试标签
-```
-
+### 数据集说明
 **标签格式：** YOLO OBB格式
 ```
 class x_center y_center width height angle
@@ -328,13 +318,6 @@ recall               0.7890       0.8567       0.8456       +0.0566
    参数量: 3,456,789
 ```
 
-## 单元测试
-
-运行所有测试:
-
-```bash
-python test/run_all_tests.py
-```
 
 
 ## 注意事项
@@ -376,10 +359,6 @@ session = ort.InferenceSession('edge_optimized.onnx')
 # 进行推理
 "
 ```
-
-## 技术细节
-
-详见 [TECHNICAL_DOCUMENT.md](TECHNICAL_DOCUMENT.md)
 
 ## 许可证
 

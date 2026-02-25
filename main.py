@@ -15,8 +15,35 @@ from models.edge_optimization import EdgeOptimizer
 from ultralytics import YOLO
 
 
+def check_environment():
+    """检查环境配置"""
+    print("\n" + "=" * 60)
+    print("🔍 环境检查")
+    print("=" * 60)
+
+    # 检查路径
+    if not Config.validate_paths():
+        print("\n⚠️  请配置正确的数据集路径")
+        print("   可以通过环境变量或修改 Config/config.py 设置")
+        return False
+
+    # 检查边缘优化配置
+    print("\n   边缘优化配置:")
+    edge_config = Config.EDGE_OPTIMIZATION
+    print(f"      启用状态: {edge_config['enabled']}")
+    print(f"      轻量化模块: {edge_config['use_lightweight_blocks']}")
+    print(f"      模型剪枝: {edge_config['use_pruning']} (比例: {edge_config['pruning_ratio']})")
+    print(f"      量化: {edge_config['use_quantization']} ({edge_config['quantization_bits']}bit)")
+
+    print("\n✅ 环境检查通过")
+    return True
+
 
 def run_full_pipeline():
+
+    # 检查环境
+    if not check_environment():
+        return
 
     # 验证数据集
     dataset_result = validate_dataset()
@@ -34,6 +61,16 @@ def run_full_pipeline():
     # 检查训练状态
     baseline_trained, baseline_path = trainer.check_baseline_trained()
     improved_trained, improved_path = trainer.check_improved_trained()
+
+    if baseline_trained and improved_trained:
+        print("\n" + "=" * 60)
+        print("📋 训练状态检查")
+        print("=" * 60)
+        print(f"   ✅ Baseline 模型已训练: {baseline_path}")
+        print(f"   ✅ 改进模型已训练完成: {improved_path}")
+        print(f"\n   检测到已训练的模型，将跳过训练阶段")
+        print("   如需重新训练，请删除输出目录中的模型文件")
+        print("=" * 60)
 
     # 训练Baseline
     print("\nStep 1: 训练 Baseline 模型")
@@ -59,7 +96,8 @@ def run_full_pipeline():
     comparison = improved_evaluator.compare_with_baseline(baseline_model, data_yaml)
 
     # 导出边缘部署模型
-    print("Step 4: 导出模型")
+    print("\n" + "=" * 60)
+    print("Step 4: 导出边缘部署模型")
 
     # 获取模型路径
     baseline_model_path = str(Config.OUTPUT_ROOT / "baseline" / "baseline" / "weights" / "best.pt")
@@ -74,7 +112,7 @@ def run_full_pipeline():
     # 可视化
     print("Step 5: 生成可视化图表")
 
-    # 使用trainer的可视化方法
+    # 使用trainer的可视化方法（包含训练曲线和阶段对比）
     trainer.visualize_results(baseline_metrics, improved_metrics)
 
     # 同时生成标准对比报告
@@ -102,6 +140,7 @@ def run_full_pipeline():
 
         print(f"{metric:<20} {baseline_val:<15.4f} {improved_val:<15.4f} "
               f"{abs_imp:+.4f} ({rel_imp:+.2f}%)")
+
 
 def main():
     """主函数"""

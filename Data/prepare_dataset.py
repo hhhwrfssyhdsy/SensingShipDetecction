@@ -1,19 +1,5 @@
 """
 数据集准备模块 
-统一数据集结构：
-    dataset/
-    ├── images/
-    │   ├── train/
-    │   ├── val/
-    │   └── test/
-    └── labels/
-        ├── train/
-        ├── val/
-        └── test/
-
-标签格式：Ultralytics YOLO OBB格式 (class x1 y1 x2 y2 x3 y3 x4 y4)
-- 4个角点坐标（归一化0-1）
-- 角点顺序：左上、右上、右下、左下（顺时针）
 """
 import math
 from pathlib import Path

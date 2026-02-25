@@ -110,9 +110,6 @@ def convert_label_file(input_path: Path, output_path: Path):
 
 def convert_dataset_labels():
     """转换整个数据集的标签"""
-    print("\n" + "=" * 60)
-    print("🔄 转换标签格式为 Ultralytics OBB 格式")
-    print("=" * 60)
     
     dataset_root = Config.DATASET_ROOT
     
@@ -155,8 +152,7 @@ def convert_dataset_labels():
         total_converted += converted_count
     
     print(f"\n✅ 总共转换 {total_converted} 个标签文件")
-    print("   原文件已备份为 .txt.backup")
-    print("=" * 60)
+
 
 
 if __name__ == "__main__":

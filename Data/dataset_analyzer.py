@@ -1,6 +1,5 @@
 """
-数据集分析模块 - 简化版
-分析人工准备好的统一数据集结构
+数据集分析模块 
 """
 from pathlib import Path
 from typing import Dict, List
